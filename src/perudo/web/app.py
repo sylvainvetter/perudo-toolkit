@@ -204,7 +204,9 @@ async def api_simulate(req: SimulateRequest) -> dict:  # type: ignore[type-arg]
             raise HTTPException(status_code=422, detail=f"Unknown strategy: {key}")
         strategies.append(cls())
 
-    results = run_simulation(req.n_games, strategies, seed=None)
+    names = " vs ".join(s.name for s in strategies)
+    print(f"\n[Simulation] {req.n_games} parties — {names}")
+    results = run_simulation(req.n_games, strategies, seed=None, verbose=True)
 
     stats = []
     for s in results.strategy_stats:

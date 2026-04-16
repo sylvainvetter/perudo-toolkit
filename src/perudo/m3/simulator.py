@@ -245,12 +245,20 @@ def _run_single_game(
 # ---------------------------------------------------------------------------
 
 
+def _progress_bar(done: int, total: int, width: int = 30) -> str:
+    filled = int(width * done / total)
+    bar = "#" * filled + "-" * (width - filled)
+    return f"[{bar}] {done}/{total} ({100 * done // total}%)"
+
+
 def run_simulation(
     n_games: int,
     strategies: list[Strategy],
     *,
     seed: int | None = None,
     output_dir: Path | None = None,
+    verbose: bool = False,
+    label: str = "",
 ) -> SimulationResults:
     """
     Run *n_games* full Perudo games and return aggregated statistics.
@@ -261,19 +269,46 @@ def run_simulation(
         seed:       RNG seed for reproducibility (None = random).
         output_dir: If provided, write game_records.csv, bid_records.csv,
                     and summary.md to this directory.
+        verbose:    Print a progress bar to stdout (overwrites same line).
+        label:      Optional prefix shown in the progress bar.
 
     Returns:
         SimulationResults with per-strategy win rates and Wilson CIs.
     """
+    import sys
+    import time
+
     rng = np.random.default_rng(seed)
 
     all_games: list[GameRecord] = []
     all_bids: list[BidRecord] = []
+    t_start = time.perf_counter()
 
     for game_id in range(n_games):
         game_record, bid_records = _run_single_game(strategies, rng, game_id)
         all_games.append(game_record)
         all_bids.extend(bid_records)
+
+        step = max(1, n_games // 100)
+        if verbose and (game_id % step == 0 or game_id == n_games - 1):
+            elapsed = time.perf_counter() - t_start
+            eta = (elapsed / (game_id + 1)) * (n_games - game_id - 1)
+            wins = dict.fromkeys(range(len(strategies)), 0)
+            for g in all_games:
+                wins[g.winner_id] += 1
+            rates = "  ".join(
+                f"{strategies[i].name}: {wins[i] / (game_id + 1):.1%}"
+                for i in range(len(strategies))
+            )
+            prefix = f"{label}  " if label else ""
+            bar = _progress_bar(game_id + 1, n_games)
+            line = f"\r  {prefix}{bar}  ETA: {eta:.0f}s  |  {rates}   "
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+    if verbose:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
     results = SimulationResults(
         n_games=n_games,
