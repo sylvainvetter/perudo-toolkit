@@ -33,16 +33,18 @@ class RecommenderConfig:
     """
     Tunable decision thresholds.
 
-    Defaults are grounded in game-theory:
-    - threshold_liar = 0.50: challenge when bid is more likely false than true
-      (break-even point; Ferguson & Ferguson 1991 / Nash equilibrium analysis).
+    Defaults calibrated by S7 grid-search (81 configs × 500 games vs [Honest, Honest],
+    validated at 2 000 games, confirmed across 3 opponent scenarios):
+    - threshold_liar = 0.30: challenge aggressively — wins +15 pp over the Nash
+      break-even (0.50) against Honest-style opponents who bid rounded expectations.
+      Robust across mixed and symmetric ThresholdBot fields (see docs/steps/STEP_S7.md).
     - threshold_exact = 0.40: claim exact when highly concentrated distribution
       (conservative — exact is one-shot and losing costs a die).
-    - lambda_risk = 0.0: no risk penalty by default; calibrated by M3 in S7.
+    - lambda_risk = 0.0: no risk penalty by default.
     """
 
-    threshold_liar: float = 0.50
-    """Recommend Liar when P(current bid true) < this value. 0.50 = break-even."""
+    threshold_liar: float = 0.30
+    """Recommend Liar when P(current bid true) < this value. Calibrated at 0.30 (S7)."""
 
     threshold_exact: float = 0.40
     """Recommend Exact when P(current bid exact) > this value and exact is available."""
