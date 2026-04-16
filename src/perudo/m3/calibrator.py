@@ -13,6 +13,9 @@ Usage:
 from __future__ import annotations
 
 import csv
+import os
+import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,7 +24,37 @@ import numpy as np
 from perudo.m2 import RecommenderConfig
 from perudo.m3.reporter import StrategyStats
 from perudo.m3.simulator import run_simulation
-from perudo.m3.strategies import Honest, Strategy, ThresholdBot
+from perudo.m3.strategies import Honest, RandomLegal, Strategy, ThresholdBot
+
+# ---------------------------------------------------------------------------
+# Worker function (module-level for pickling on Windows)
+# ---------------------------------------------------------------------------
+
+
+def _run_one_config(
+    args: tuple[float, float, int, int, list[str]],
+) -> CalibrationPoint:
+    """Run one grid-search config in a worker process."""
+    liar, exact, n_games, seed, opp_specs = args
+    opps: list[Strategy] = []
+    for spec in opp_specs:
+        if spec == "honest":
+            opps.append(Honest())
+        else:
+            opps.append(RandomLegal())
+    config = RecommenderConfig(threshold_liar=liar, threshold_exact=exact)
+    strats: list[Strategy] = [ThresholdBot(config)] + opps
+    results = run_simulation(n_games, strats, seed=seed)
+    bot: StrategyStats = results.strategy_stats[0]
+    lo, hi = bot.wilson_ci()
+    return CalibrationPoint(
+        threshold_liar=liar,
+        threshold_exact=exact,
+        win_rate=bot.win_rate,
+        ci_lo=lo,
+        ci_hi=hi,
+        n_games=n_games,
+    )
 
 # ---------------------------------------------------------------------------
 # Grid definition
@@ -85,6 +118,7 @@ def calibrate(
     opponents: list[Strategy] | None = None,
     seed: int = 42,
     verbose: bool = True,
+    n_workers: int | None = None,
 ) -> CalibrationResults:
     """
     Run a grid search over (threshold_liar, threshold_exact).
@@ -98,7 +132,9 @@ def calibrate(
         exact_values:  threshold_exact grid (default: 0.15..0.55 step 0.05).
         opponents:     Fixed opponent strategies (default: [Honest(), Honest()]).
         seed:          Base RNG seed; each config gets seed + deterministic offset.
-        verbose:       Print progress.
+        verbose:       Print progress bar to stdout.
+        n_workers:     Worker processes (default: all CPU cores).
+                       Set to 1 to disable multiprocessing.
 
     Returns:
         CalibrationResults with all grid points ranked by win rate.
@@ -108,44 +144,47 @@ def calibrate(
     opps: list[Strategy] = opponents if opponents is not None else [Honest(), Honest()]
     opp_names = [s.name for s in opps]
 
+    # Convert opponents to serialisable specs for worker processes
+    opp_specs: list[str] = []
+    for o in opps:
+        opp_specs.append("honest" if isinstance(o, Honest) else "random")
+
     total = len(lv) * len(ev)
-    points: list[CalibrationPoint] = []
-    done = 0
+    workers = n_workers if n_workers is not None else (os.cpu_count() or 1)
 
+    # Build deterministic seeds for every config
     rng_meta = np.random.default_rng(seed)
-
+    all_args: list[tuple[float, float, int, int, list[str]]] = []
     for liar in lv:
         for exact in ev:
-            # Unique seed per config for reproducibility
             config_seed = int(rng_meta.integers(0, 2**31))
-            config = RecommenderConfig(threshold_liar=liar, threshold_exact=exact)
-            strategies: list[Strategy] = [ThresholdBot(config)] + list(opps)
+            all_args.append((liar, exact, n_games, config_seed, opp_specs))
 
-            results = run_simulation(n_games, strategies, seed=config_seed)
-            bot_stats: StrategyStats = results.strategy_stats[0]
-            lo, hi = bot_stats.wilson_ci()
+    points: list[CalibrationPoint] = []
 
-            points.append(
-                CalibrationPoint(
-                    threshold_liar=liar,
-                    threshold_exact=exact,
-                    win_rate=bot_stats.win_rate,
-                    ci_lo=lo,
-                    ci_hi=hi,
-                    n_games=n_games,
-                )
-            )
-
-            done += 1
+    if workers == 1:
+        # Sequential — progress bar overwrites the same line
+        for i, args in enumerate(all_args):
+            pt = _run_one_config(args)
+            points.append(pt)
             if verbose:
-                best_so_far = max(points, key=lambda p: p.win_rate)
-                print(
-                    f"  [{done:3d}/{total}] liar={liar:.2f} exact={exact:.2f} "
-                    f"= {bot_stats.win_rate:.1%}  "
-                    f"(best so far: {best_so_far.win_rate:.1%} "
-                    f"at liar={best_so_far.threshold_liar:.2f} "
-                    f"exact={best_so_far.threshold_exact:.2f})"
-                )
+                _print_progress(i + 1, total, points)
+    else:
+        # Parallel — futures complete out of order, collect as they arrive
+        if verbose:
+            cpu_str = f"{workers} CPU"
+            print(f"  Parallelisme : {cpu_str} — {total} configs", flush=True)
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(_run_one_config, a): a for a in all_args}
+            for done, future in enumerate(as_completed(futures), start=1):
+                pt = future.result()
+                points.append(pt)
+                if verbose:
+                    _print_progress(done, total, points)
+
+    if verbose:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
     return CalibrationResults(
         points=points,
@@ -154,6 +193,19 @@ def calibrate(
         liar_values=lv,
         exact_values=ev,
     )
+
+
+def _print_progress(done: int, total: int, points: list[CalibrationPoint]) -> None:
+    width = 28
+    filled = int(width * done / total)
+    bar = "#" * filled + "-" * (width - filled)
+    best = max(points, key=lambda p: p.win_rate)
+    sys.stdout.write(
+        f"\r  [{bar}] {done:3d}/{total} "
+        f"| best: liar={best.threshold_liar:.2f} exact={best.threshold_exact:.2f}"
+        f" -> {best.win_rate:.1%}   "
+    )
+    sys.stdout.flush()
 
 
 # ---------------------------------------------------------------------------

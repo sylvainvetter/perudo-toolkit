@@ -22,7 +22,6 @@ from perudo.m2 import RecommenderConfig
 from perudo.m3 import Honest, RandomLegal, ThresholdBot, run_simulation
 from perudo.m3.calibrator import (
     CalibrationResults,
-    calibrate,
     write_calibration_csv,
     write_calibration_report,
 )
@@ -57,6 +56,10 @@ def main() -> None:
         "--seed", type=int, default=42,
         help="Graine aleatoire (defaut: 42)"
     )
+    parser.add_argument(
+        "--workers", type=int, default=None,
+        help="Nombre de processus paralleles (defaut: tous les coeurs CPU)"
+    )
     args = parser.parse_args()
 
     out = Path(args.out)
@@ -66,10 +69,13 @@ def main() -> None:
     print("=" * 60)
     print("  Calibration M2 — grid search multi-joueurs")
     print("=" * 60)
+    import os
+    workers = args.workers or os.cpu_count() or 1
     print(f"  Joueurs      : {args.players}")
     print(f"  Parties/cfg  : {args.games:,}")
     print(f"  Configs      : {n_configs}")
     print(f"  Total parties: {len(args.players) * n_configs * args.games:,}")
+    print(f"  CPU workers  : {workers}")
     print(f"  Sortie       : {out}/")
     print("=" * 60)
     print()
@@ -123,11 +129,12 @@ def _calibrate_verbose(
 ) -> CalibrationResults:
     """Calibrate avec barre de progression dans le terminal."""
     import numpy as np
+
     from perudo.m3.calibrator import (
-        CalibrationPoint,
-        CalibrationResults,
         _EXACT_VALUES,
         _LIAR_VALUES,
+        CalibrationPoint,
+        CalibrationResults,
     )
     from perudo.m3.reporter import StrategyStats
 
@@ -138,7 +145,7 @@ def _calibrate_verbose(
     rng_meta = np.random.default_rng(seed)
     opp_names = [s.name for s in opponents]
 
-    for idx, liar in enumerate(lv):
+    for liar in lv:
         for exact in ev:
             config_seed = int(rng_meta.integers(0, 2**31))
             config = RecommenderConfig(threshold_liar=liar, threshold_exact=exact)
