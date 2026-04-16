@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% set active = "proba" %}
+{% block title %}Probabilités — Perudo Toolkit{% endblock %}
+
+{% block content %}
+<div x-data="proba()" x-cloak>
+
+  <h1 class="text-2xl font-bold text-brand mb-1">Calculateur de probabilités</h1>
+  <p class="text-slate-400 text-sm mb-8">Analyse détaillée d'une enchère précise dans son contexte.</p>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+    <!-- Saisie -->
+    <div class="space-y-5">
+
+      <!-- Enchère à analyser -->
+      <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+        <h2 class="font-semibold text-slate-200 mb-4">Enchère à analyser</h2>
+        <div class="flex items-end gap-4">
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">Quantité</label>
+            <input type="number" x-model.number="bidQty" min="1" max="30"
+                   class="w-20 bg-slate-700 border border-slate-600 rounded px-3 py-2
+                          text-slate-100 text-center font-semibold focus:outline-none focus:border-brand" />
+          </div>
+          <div class="text-slate-500 pb-2 text-lg">×</div>
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">Valeur</label>
+            <select x-model.number="bidVal"
+                    class="bg-slate-700 border border-slate-600 rounded px-3 py-2
+                           text-slate-100 focus:outline-none focus:border-brand">
+              <option value="1">★ As (Perudo)</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mes dés -->
+      <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-semibold text-slate-200">Mes dés</h2>
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-slate-400">Nombre :</span>
+            <button @click="nDice = Math.max(1, nDice - 1)"
+                    class="w-7 h-7 rounded bg-slate-700 hover:bg-slate-600 font-bold text-slate-200 flex items-center justify-center">−</button>
+            <span class="w-5 text-center font-bold text-brand" x-text="nDice"></span>
+            <button @click="nDice = Math.min(5, nDice + 1)"
+                    class="w-7 h-7 rounded bg-slate-700 hover:bg-slate-600 font-bold text-slate-200 flex items-center justify-center">+</button>
+          </div>
+        </div>
+        <div class="flex gap-3 flex-wrap">
+          <template x-for="(val, i) in dice" :key="i">
+            <button @click="cycleDie(i)"
+                    :class="['die', val === 1 ? 'value-1' : '', i >= nDice ? 'inactive' : '']">
+              <span x-text="val === 1 ? '★' : val"></span>
+            </button>
+          </template>
+        </div>
+        <p class="text-xs text-slate-500 mt-3">Clique pour changer · ★ = As (joker)</p>
+      </div>
+
+      <!-- Dés inconnus -->
+      <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+        <h2 class="font-semibold text-slate-200 mb-4">Dés des adversaires</h2>
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-slate-400">Total dés inconnus :</span>
+          <button @click="nUnknown = Math.max(0, nUnknown - 1)"
+                  class="w-7 h-7 rounded bg-slate-700 hover:bg-slate-600 font-bold text-slate-200 flex items-center justify-center">−</button>
+          <span class="w-8 text-center font-bold text-brand text-lg" x-text="nUnknown"></span>
+          <button @click="nUnknown = Math.min(40, nUnknown + 1)"
+                  class="w-7 h-7 rounded bg-slate-700 hover:bg-slate-600 font-bold text-slate-200 flex items-center justify-center">+</button>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">Nombre total de dés que tu ne vois pas (tous adversaires confondus)</p>
+
+        <label class="flex items-center gap-2 mt-4 cursor-pointer">
+          <input type="checkbox" x-model="percolateur" class="w-4 h-4 rounded accent-amber-400" />
+          <span class="text-sm text-slate-300">Percolateur actif</span>
+        </label>
+      </div>
+
+      <button @click="calculate()" :disabled="loading"
+              class="w-full py-3 rounded-xl font-bold text-slate-900 bg-brand hover:bg-brand-dark
+                     disabled:opacity-50 disabled:cursor-not-allowed transition text-base">
+        <span x-show="!loading">📊 Calculer</span>
+        <span x-show="loading">Calcul…</span>
+      </button>
+    </div>
+
+    <!-- Résultats -->
+    <div>
+      <div x-show="!result && !error"
+           class="bg-slate-800 rounded-xl p-8 border border-slate-700 border-dashed
+                  flex flex-col items-center justify-center text-center min-h-64">
+        <div class="text-4xl mb-3">📊</div>
+        <p class="text-slate-500">Configure l'enchère et clique sur<br/><strong class="text-slate-400">Calculer</strong></p>
+      </div>
+
+      <div x-show="error" class="bg-red-950 border border-red-800 rounded-xl p-5 text-red-300 text-sm">
+        <strong>Erreur :</strong> <span x-text="error"></span>
+      </div>
+
+      <div x-show="result" x-cloak class="space-y-4">
+
+        <!-- Résumé de l'enchère analysée -->
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+          <p class="text-xs text-slate-400 mb-2">Enchère analysée</p>
+          <p class="text-xl font-bold text-slate-100">
+            <span x-text="bidQty"></span> ×
+            <span x-text="bidVal === 1 ? '★ As' : bidVal"></span>
+          </p>
+          <p class="text-sm text-slate-400 mt-1">
+            <span x-text="nDice"></span> dés visibles +
+            <span x-text="nUnknown"></span> dés inconnus
+            <span x-show="percolateur"> · Percolateur</span>
+          </p>
+        </div>
+
+        <!-- Probabilités principales -->
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-slate-800 rounded-xl p-5 border border-slate-700 text-center">
+            <p class="text-xs text-slate-400 mb-2 uppercase tracking-wide">P(≥ quantité)</p>
+            <p class="text-4xl font-black" :class="probColor(result?.p_true)" x-text="pct(result?.p_true)"></p>
+            <p class="text-xs text-slate-500 mt-2">Proba que l'enchère soit vraie</p>
+          </div>
+          <div class="bg-slate-800 rounded-xl p-5 border border-slate-700 text-center">
+            <p class="text-xs text-slate-400 mb-2 uppercase tracking-wide">P(= exactement)</p>
+            <p class="text-4xl font-black text-orange-400" x-text="pct(result?.p_exact)"></p>
+            <p class="text-xs text-slate-500 mt-2">Proba pour un coup Exact</p>
+          </div>
+        </div>
+
+        <!-- Détails -->
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+          <h3 class="text-sm font-semibold text-slate-300 mb-4">Détails</h3>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between py-1 border-b border-slate-700/50">
+              <span class="text-slate-400">Espérance totale</span>
+              <span class="font-semibold text-slate-200" x-text="result?.expected"></span>
+            </div>
+            <div class="flex justify-between py-1 border-b border-slate-700/50">
+              <span class="text-slate-400">Mes dés qui comptent</span>
+              <span class="font-semibold text-slate-200" x-text="result?.own_count"></span>
+            </div>
+            <div class="flex justify-between py-1">
+              <span class="text-slate-400">Prob. par dé inconnu</span>
+              <span class="font-semibold text-slate-200" x-text="pct(result?.p_die)"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interprétation -->
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+          <h3 class="text-sm font-semibold text-slate-300 mb-2">Interprétation</h3>
+          <p class="text-sm text-slate-400" x-text="interpretation()"></p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function proba() {
+  return {
+    bidQty: 3,
+    bidVal: 3,
+    nDice: 5,
+    dice: [1, 2, 3, 4, 5],
+    nUnknown: 10,
+    percolateur: false,
+    result: null,
+    loading: false,
+    error: null,
+
+    cycleDie(i) {
+      this.dice[i] = (this.dice[i] % 6) + 1;
+    },
+
+    async calculate() {
+      this.loading = true;
+      this.error = null;
+      this.result = null;
+      try {
+        const resp = await fetch('/api/stats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            own_dice: this.dice.slice(0, this.nDice),
+            bid: { quantity: parseInt(this.bidQty), value: parseInt(this.bidVal) },
+            n_unknown: parseInt(this.nUnknown),
+            percolateur: this.percolateur,
+          }),
+        });
+        if (!resp.ok) throw new Error('Erreur serveur');
+        this.result = await resp.json();
+      } catch (e) {
+        this.error = e.message;
+      }
+      this.loading = false;
+    },
+
+    pct(v) {
+      if (v === null || v === undefined) return '—';
+      return (v * 100).toFixed(1) + '%';
+    },
+
+    probColor(v) {
+      if (v === null || v === undefined) return 'text-slate-300';
+      if (v >= 0.65) return 'text-green-400';
+      if (v >= 0.4)  return 'text-yellow-400';
+      return 'text-red-400';
+    },
+
+    interpretation() {
+      if (!this.result) return '';
+      const p = this.result.p_true;
+      const pe = this.result.p_exact;
+      const exp = this.result.expected;
+      const v = this.bidVal === 1 ? 'As' : this.bidVal;
+      let msg = `Espérance : ${exp} « ${v} » au total. `;
+      if (p >= 0.65) msg += `L'enchère est probablement vraie (${this.pct(p)}). Surenchérir est sûr.`;
+      else if (p >= 0.5) msg += `L'enchère est plus probable que fausse (${this.pct(p)}). Surenchère prudente.`;
+      else if (p >= 0.35) msg += `L'enchère est douteuse (${this.pct(p)}). Menteur envisageable.`;
+      else msg += `L'enchère est probablement fausse (${this.pct(p)}). Appeler Menteur est conseillé.`;
+      if (pe > 0.25) msg += ` Exact intéressant (${this.pct(pe)}).`;
+      return msg;
+    },
+  };
+}
+</script>
+{% endblock %}

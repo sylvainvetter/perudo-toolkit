@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% set active = "sim" %}
+{% block title %}Simulation — Perudo Toolkit{% endblock %}
+
+{% block content %}
+<div x-data="sim()" x-cloak>
+
+  <h1 class="text-2xl font-bold text-brand mb-1">Simulation Monte Carlo</h1>
+  <p class="text-slate-400 text-sm mb-8">Compare les stratégies sur N parties simulées.</p>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+    <!-- Config -->
+    <div class="space-y-5">
+
+      <!-- Stratégies -->
+      <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+        <h2 class="font-semibold text-slate-200 mb-4">Joueurs</h2>
+        <div class="space-y-3">
+          <template x-for="(p, i) in players" :key="p.id">
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-slate-400 w-16">Joueur <span x-text="i + 1"></span></span>
+              <select x-model="p.strategy"
+                      class="flex-1 bg-slate-700 border border-slate-600 rounded px-3 py-1.5
+                             text-slate-100 text-sm focus:outline-none focus:border-brand">
+                <option value="random">RandomLegal — aléatoire</option>
+                <option value="honest">Honest — honnête</option>
+                <option value="threshold">ThresholdBot — recommandeur M2</option>
+              </select>
+              <button @click="removePlayer(i)" x-show="players.length > 2"
+                      class="text-slate-600 hover:text-red-400 text-sm shrink-0">✕</button>
+            </div>
+          </template>
+        </div>
+        <button @click="addPlayer()" x-show="players.length < 6"
+                class="mt-3 text-xs px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300">
+          + Ajouter un joueur
+        </button>
+      </div>
+
+      <!-- Nombre de parties -->
+      <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+        <h2 class="font-semibold text-slate-200 mb-4">Paramètres</h2>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="text-sm text-slate-400">Nombre de parties</label>
+            <select x-model.number="nGames"
+                    class="bg-slate-700 border border-slate-600 rounded px-3 py-1.5
+                           text-slate-100 text-sm focus:outline-none focus:border-brand">
+              <option value="200">200</option>
+              <option value="500" selected>500</option>
+              <option value="1000">1 000</option>
+              <option value="2000">2 000</option>
+            </select>
+          </div>
+          <p class="text-xs text-slate-500">Max 2 000 parties pour la version web (limite serveur).</p>
+        </div>
+      </div>
+
+      <button @click="runSim()" :disabled="loading"
+              class="w-full py-3 rounded-xl font-bold text-slate-900 bg-brand hover:bg-brand-dark
+                     disabled:opacity-50 disabled:cursor-not-allowed transition text-base">
+        <span x-show="!loading">▶ Lancer la simulation</span>
+        <span x-show="loading">Simulation en cours… <span x-text="nGames"></span> parties</span>
+      </button>
+
+      <!-- Résultats de référence (10k) -->
+      <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+        <h2 class="font-semibold text-slate-200 mb-1">Référence — 10 000 parties</h2>
+        <p class="text-xs text-slate-500 mb-3">3 joueurs · seed=42 · durée moyenne 13,1 tours</p>
+        <div class="space-y-2">
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-slate-400 w-32">RandomLegal</span>
+            <div class="flex-1 bg-slate-700 rounded-full h-2 overflow-hidden">
+              <div class="bg-slate-500 h-2 rounded-full" style="width: 10.7%"></div>
+            </div>
+            <span class="text-sm font-semibold text-slate-300 w-12 text-right">10,7 %</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-slate-400 w-32">Honest</span>
+            <div class="flex-1 bg-slate-700 rounded-full h-2 overflow-hidden">
+              <div class="bg-blue-500 h-2 rounded-full" style="width: 40.5%"></div>
+            </div>
+            <span class="text-sm font-semibold text-slate-300 w-12 text-right">40,5 %</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-slate-400 w-32">ThresholdBot</span>
+            <div class="flex-1 bg-slate-700 rounded-full h-2 overflow-hidden">
+              <div class="bg-brand h-2 rounded-full" style="width: 48.8%"></div>
+            </div>
+            <span class="text-sm font-semibold text-brand w-12 text-right">48,8 %</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Résultats -->
+    <div>
+      <div x-show="!result && !error && !loading"
+           class="bg-slate-800 rounded-xl p-8 border border-slate-700 border-dashed
+                  flex flex-col items-center justify-center text-center min-h-64">
+        <div class="text-4xl mb-3">▶</div>
+        <p class="text-slate-500">Configure les joueurs et<br/>lance la simulation</p>
+      </div>
+
+      <div x-show="loading && !result"
+           class="bg-slate-800 rounded-xl p-8 border border-slate-700
+                  flex flex-col items-center justify-center text-center min-h-64">
+        <div class="text-4xl mb-3 animate-spin">⚙</div>
+        <p class="text-slate-400">Simulation en cours…</p>
+        <p class="text-slate-500 text-sm mt-1"><span x-text="nGames"></span> parties</p>
+      </div>
+
+      <div x-show="error" class="bg-red-950 border border-red-800 rounded-xl p-5 text-red-300 text-sm">
+        <strong>Erreur :</strong> <span x-text="error"></span>
+      </div>
+
+      <div x-show="result" x-cloak class="space-y-4">
+
+        <!-- En-tête résultats -->
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-xs text-slate-400">Simulation terminée</p>
+              <p class="text-xl font-bold text-slate-100">
+                <span x-text="result?.n_games?.toLocaleString('fr-FR')"></span> parties
+              </p>
+            </div>
+            <div class="text-right">
+              <p class="text-xs text-slate-400">Durée moy.</p>
+              <p class="text-xl font-bold text-slate-100">
+                <span x-text="result?.avg_rounds"></span> tours
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Taux de victoire -->
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+          <h3 class="text-sm font-semibold text-slate-300 mb-4">Taux de victoire</h3>
+          <div class="space-y-4">
+            <template x-for="(s, i) in result?.stats" :key="i">
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-sm text-slate-300" x-text="s.name"></span>
+                  <div class="text-right">
+                    <span class="text-sm font-bold" :class="i === 0 ? 'text-brand' : 'text-slate-300'"
+                          x-text="pct(s.win_rate)"></span>
+                    <span class="text-xs text-slate-500 ml-1"
+                          x-text="'[' + pct(s.ci_lo) + '–' + pct(s.ci_hi) + ']'"></span>
+                  </div>
+                </div>
+                <div class="bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                  <div class="h-2.5 rounded-full transition-all duration-700"
+                       :class="barColor(i)"
+                       :style="'width: ' + (s.win_rate * 100) + '%'"></div>
+                </div>
+                <p class="text-xs text-slate-500 mt-0.5">
+                  <span x-text="s.wins?.toLocaleString('fr-FR')"></span> victoires
+                  · IC 95 % Wilson
+                </p>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function sim() {
+  return {
+    players: [
+      { id: 1, strategy: 'random' },
+      { id: 2, strategy: 'honest' },
+      { id: 3, strategy: 'threshold' },
+    ],
+    nGames: 500,
+    result: null,
+    loading: false,
+    error: null,
+
+    addPlayer() {
+      if (this.players.length < 6) {
+        this.players.push({ id: Date.now(), strategy: 'random' });
+      }
+    },
+
+    removePlayer(i) {
+      if (this.players.length > 2) {
+        this.players.splice(i, 1);
+      }
+    },
+
+    async runSim() {
+      this.loading = true;
+      this.error = null;
+      this.result = null;
+      try {
+        const resp = await fetch('/api/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            strategies: this.players.map(p => p.strategy),
+            n_games: parseInt(this.nGames),
+          }),
+        });
+        if (!resp.ok) throw new Error('Erreur serveur');
+        this.result = await resp.json();
+      } catch (e) {
+        this.error = e.message;
+      }
+      this.loading = false;
+    },
+
+    pct(v) {
+      if (v === null || v === undefined) return '—';
+      return (v * 100).toFixed(1) + '%';
+    },
+
+    barColor(i) {
+      const colors = ['bg-brand', 'bg-blue-500', 'bg-purple-500',
+                      'bg-green-500', 'bg-pink-500', 'bg-cyan-500'];
+      return colors[i % colors.length];
+    },
+  };
+}
+</script>
+{% endblock %}
