@@ -1,7 +1,7 @@
 """
 M2 — Action recommender for Perudo.
 
-Decision logic v1 (thresholds calibrable via M3 — S7):
+Decision logic v1 (thresholds calibrable via M3 — S7/S8):
   1. Compute p_true  = P(current bid is satisfied  | own dice)
   2. Compute p_exact = P(current bid is exact       | own dice)
   3. p_true  < cfg.threshold_liar              → recommend Liar
@@ -12,6 +12,12 @@ The score for a raise candidate is:
     score = p_true(raised_bid) − lambda_risk × max(0, q − E[T])
 
 With lambda_risk = 0 (default), score = p_true: the most probable raise wins.
+
+Adaptive thresholds (S8 multi-player calibration, 81 configs × 500 games each):
+  n_players=3 → liar=0.30, exact=0.45   (win rate 67.0%)
+  n_players=4 → liar=0.35, exact=0.40   (win rate 65.6%)
+  n_players=5 → liar=0.30, exact=0.50   (win rate 64.4%)
+  n_players=6 → liar=0.30, exact=0.30   (win rate 61.8%)
 """
 
 from __future__ import annotations
@@ -54,6 +60,29 @@ class RecommenderConfig:
 
 
 _DEFAULT_CONFIG = RecommenderConfig()
+
+# ---------------------------------------------------------------------------
+# Adaptive thresholds — calibrated per player count (S8)
+# ---------------------------------------------------------------------------
+
+_ADAPTIVE_CONFIGS: dict[int, RecommenderConfig] = {
+    3: RecommenderConfig(threshold_liar=0.30, threshold_exact=0.45),
+    4: RecommenderConfig(threshold_liar=0.35, threshold_exact=0.40),
+    5: RecommenderConfig(threshold_liar=0.30, threshold_exact=0.50),
+    6: RecommenderConfig(threshold_liar=0.30, threshold_exact=0.30),
+}
+
+
+def config_for_n_players(n_players: int) -> RecommenderConfig:
+    """Return the calibrated config for the given player count.
+
+    Falls back to the closest calibrated value for n < 3 or n > 6.
+    """
+    if n_players <= 3:
+        return _ADAPTIVE_CONFIGS[3]
+    if n_players >= 6:
+        return _ADAPTIVE_CONFIGS[6]
+    return _ADAPTIVE_CONFIGS.get(n_players, _DEFAULT_CONFIG)
 
 
 # ---------------------------------------------------------------------------
@@ -194,11 +223,12 @@ def recommend(
     Returns:
         Recommendation with best_action, optional bid_if_raise, and rationale.
     """
-    cfg = config or _DEFAULT_CONFIG
     player = _get_player(game_state)
     own = player.dice
     n_unk = _n_unknown(game_state)
     total = _total_dice(game_state)
+    n_players = len(game_state.players)
+    cfg = config if config is not None else config_for_n_players(n_players)
     prev = game_state.round.current_bid
     perco = game_state.round.percolateur
     pid = game_state.round.current_player_id

@@ -5,6 +5,7 @@ from .recommender import (
     Rationale,
     Recommendation,
     RecommenderConfig,
+    config_for_n_players,
     enumerate_valid_raises,
     recommend,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "Rationale",
     "Recommendation",
     "RecommenderConfig",
+    "config_for_n_players",
     "enumerate_valid_raises",
     "recommend",
 ]

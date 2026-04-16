@@ -19,7 +19,7 @@ Also covers:
 import time
 
 import pytest
-from hypothesis import assume, given
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from perudo.core.types import Bid
@@ -214,11 +214,12 @@ def test_invariant_complement(q: int, n: int, p: float, own_count: int) -> None:
 @given(
     n=st.integers(min_value=0, max_value=25),
     p=st.floats(min_value=1e-9, max_value=1.0, allow_nan=False, allow_subnormal=False),
-    own_count=st.integers(min_value=0, max_value=5),
-    q=st.integers(min_value=1, max_value=10),
+    q=st.integers(min_value=1, max_value=5),
+    own_count=st.integers(min_value=0, max_value=5).filter(lambda c: c >= 1),
 )
+@settings(suppress_health_check=[HealthCheck.filter_too_much])
 def test_invariant_own_count_satisfies(
-    n: int, p: float, own_count: int, q: int
+    n: int, p: float, q: int, own_count: int
 ) -> None:
     """Invariant 4: own_count >= q → P(T >= q) = 1.0."""
     assume(own_count >= q)
