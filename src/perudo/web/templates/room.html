@@ -132,7 +132,15 @@
               </button>
             </template>
             <template x-if="!seat.is_bot && seat.token !== myToken">
-              <span class="text-green-400 text-xs">✓</span>
+              <div class="flex items-center gap-2">
+                <span class="text-green-400 text-xs">✓</span>
+                <template x-if="isCreator">
+                  <button @click="kickPlayer(seat.player_id)"
+                    class="text-xs text-slate-600 hover:text-red-400 transition px-2 py-0.5 rounded border border-slate-700 hover:border-red-800">
+                    Kick
+                  </button>
+                </template>
+              </div>
             </template>
           </div>
         </template>
@@ -479,6 +487,10 @@ function roomPage(roomCode) {
           setTimeout(() => { this.phase = 'game_over'; }, 1200);
         });
       }
+      else if (msg.type === 'kicked') {
+        this.errorMsg = msg.message ?? 'Vous avez été expulsé.';
+        this.phase = 'error';
+      }
       else if (msg.type === 'room_closed') {
         this.errorMsg = msg.reason ?? 'La salle a été fermée.';
         this.phase = 'error';
@@ -501,6 +513,8 @@ function roomPage(roomCode) {
     addBot(botType) { this.send({ type: 'add_bot', bot_type: botType }); },
     removeBot(pid)  { this.send({ type: 'remove_bot', slot: pid }); },
     startGame()     { this.send({ type: 'start_game' }); },
+
+    kickPlayer(pid) { this.send({ type: 'kick', player_id: pid }); },
 
     copyCode() {
       navigator.clipboard.writeText(this.roomCode);

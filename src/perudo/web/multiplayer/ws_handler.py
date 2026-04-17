@@ -146,6 +146,27 @@ async def _dispatch(
                 if room_manager.remove_bot(room, pid):
                     await _broadcast(room, {"type": "lobby_update", **room.lobby_payload()})
 
+            elif t == "kick" and slot.token == room.creator_token:
+                pid = int(msg.get("player_id", -1))
+                if pid == slot.player_id:
+                    return  # can't kick yourself
+                target = room.slot_by_id(pid)
+                if target and not target.is_bot:
+                    kicked_ws = target.ws
+                    room.slots = [s for s in room.slots if s.player_id != pid]
+                    for i, s in enumerate(room.slots):
+                        s.player_id = i
+                    await _broadcast(room, {"type": "lobby_update", **room.lobby_payload()})
+                    if kicked_ws:
+                        try:
+                            await kicked_ws.send_text(json.dumps({
+                                "type": "kicked",
+                                "message": "Vous avez été expulsé de la room.",
+                            }))
+                            await kicked_ws.close()
+                        except Exception:
+                            pass
+
             elif t == "start_game" and slot.token == room.creator_token:
                 if len(room.slots) < 2:
                     await _send(ws, {"type": "error", "message": "Il faut au moins 2 joueurs."})
