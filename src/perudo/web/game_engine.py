@@ -274,14 +274,19 @@ def process_action(  # noqa: C901 — game loop is inherently complex
         loser_id_e: int | None = result.loser_id
 
         if result.loser_id is None:
-            gainer_id = 0
             if state["players"][0]["n_dice"] < 5:
+                gainer_id = 0
                 state["players"][0]["dice"].append(0)
                 state["players"][0]["n_dice"] += 1
-            detail = (
-                f"Total {bids[-1].value}s = {result.total_matching} — "
-                "vous gagnez 1 dé !"
-            )
+                detail = (
+                    f"Total {bids[-1].value}s = {result.total_matching} — "
+                    "vous gagnez 1 dé !"
+                )
+            else:
+                detail = (
+                    f"Total {bids[-1].value}s = {result.total_matching} — "
+                    "Exact ! (déjà au max, pas de dé gagné)"
+                )
         else:
             _apply_die_loss(state, 0)
             detail = (
@@ -360,14 +365,19 @@ def process_action(  # noqa: C901 — game loop is inherently complex
             loser_id_e2: int | None = result_e.loser_id
 
             if result_e.loser_id is None:
-                gainer_id_b = current
                 if state["players"][current]["n_dice"] < 5:
+                    gainer_id_b = current
                     state["players"][current]["dice"].append(0)
                     state["players"][current]["n_dice"] += 1
-                detail_e = (
-                    f"Total {bids[-1].value}s = {result_e.total_matching} — "
-                    f"Bot {current} gagne 1 dé !"
-                )
+                    detail_e = (
+                        f"Total {bids[-1].value}s = {result_e.total_matching} — "
+                        f"Bot {current} gagne 1 dé !"
+                    )
+                else:
+                    detail_e = (
+                        f"Total {bids[-1].value}s = {result_e.total_matching} — "
+                        f"Exact ! (déjà au max, pas de dé gagné)"
+                    )
             else:
                 _apply_die_loss(state, current)
                 detail_e = (

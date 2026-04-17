@@ -380,14 +380,19 @@ def _apply_action(
         gainer: int | None = None
         loser_e = result.loser_id
         if result.loser_id is None:
-            gainer = player_id
             if state["players"][player_id]["n_dice"] < 5:
+                gainer = player_id
                 state["players"][player_id]["dice"].append(0)
                 state["players"][player_id]["n_dice"] += 1
-            detail = (
-                f"Total {bids[-1].value}s = {result.total_matching} — "
-                f"{_player_label(state, player_id)} gagne 1 dé !"
-            )
+                detail = (
+                    f"Total {bids[-1].value}s = {result.total_matching} — "
+                    f"{_player_label(state, player_id)} gagne 1 dé !"
+                )
+            else:
+                detail = (
+                    f"Total {bids[-1].value}s = {result.total_matching} — "
+                    f"Exact ! (déjà au max, pas de dé gagné)"
+                )
         else:
             _apply_die_loss(state, player_id)
             detail = (
@@ -522,14 +527,19 @@ async def _run_bots(room: Room, cfr_policies: dict[int, Policy]) -> None:
             gainer: int | None = None
             loser_e = result.loser_id
             if result.loser_id is None:
-                gainer = current
                 if state["players"][current]["n_dice"] < 5:
+                    gainer = current
                     state["players"][current]["dice"].append(0)
                     state["players"][current]["n_dice"] += 1
-                detail = (
-                    f"Total {bids[-1].value}s = {result.total_matching} — "
-                    f"{_player_label(state, current)} gagne 1 dé !"
-                )
+                    detail = (
+                        f"Total {bids[-1].value}s = {result.total_matching} — "
+                        f"{_player_label(state, current)} gagne 1 dé !"
+                    )
+                else:
+                    detail = (
+                        f"Total {bids[-1].value}s = {result.total_matching} — "
+                        f"Exact ! (déjà au max, pas de dé gagné)"
+                    )
             else:
                 _apply_die_loss(state, current)
                 detail = (
