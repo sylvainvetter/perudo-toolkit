@@ -4,139 +4,202 @@
 
 {% block content %}
 <style>
-  .game-die {
-    width: 2.75rem; height: 2.75rem;
+  /* ── Dice ──────────────────────────────────────────────── */
+  .gdie {
+    width: 3.25rem; height: 3.25rem;
     display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 0.5rem; border: 2px solid #475569;
-    font-size: 1.35rem; font-weight: 800;
-    background: #1e293b; color: #cbd5e1; user-select: none;
+    border-radius: .65rem; border: 2px solid #475569;
+    font-size: 1.5rem; font-weight: 900;
+    background: #1e293b; color: #e2e8f0; user-select: none; flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
   }
-  .game-die.face-1 { border-color: #f59e0b; color: #fbbf24; background: #1c1408; }
+  .gdie-lg { width: 4rem; height: 4rem; font-size: 2rem; border-radius: .8rem; border-width: 3px; }
+  .gdie.v1 { border-color:#f59e0b; color:#fbbf24; background:#1c1408; box-shadow:0 2px 14px rgba(245,158,11,.35),inset 0 1px 0 rgba(255,255,255,.06); }
+  .gdie.v2 { border-color:#64748b; color:#e2e8f0; }
+  .gdie.v3 { border-color:#34d399; color:#6ee7b7; background:#071510; }
+  .gdie.v4 { border-color:#818cf8; color:#a5b4fc; background:#07071a; }
+  .gdie.v5 { border-color:#c084fc; color:#d8b4fe; background:#0f071a; }
+  .gdie.v6 { border-color:#f87171; color:#fca5a5; background:#1a0707; }
 
+  /* ── Animations ──────────────────────────────────────────── */
+  @keyframes diceIn {
+    0%   { transform: scale(.25) rotate(-25deg); opacity:0; }
+    65%  { transform: scale(1.15) rotate(4deg); }
+    100% { transform: scale(1)   rotate(0);    opacity:1; }
+  }
+  @keyframes bidPop {
+    0%   { transform: scale(.7);  opacity:0; }
+    70%  { transform: scale(1.06); }
+    100% { transform: scale(1);   opacity:1; }
+  }
+  @keyframes turnGlow {
+    0%,100% { box-shadow:0 0 0 2px rgba(245,158,11,.15); }
+    50%     { box-shadow:0 0 0 7px rgba(245,158,11,.45); }
+  }
+  @keyframes eliminated {
+    0%   { transform: scale(1); opacity:1; }
+    100% { transform: scale(.92); opacity:.28; }
+  }
+  @keyframes slideUp {
+    from { transform: translateY(12px); opacity:0; }
+    to   { transform: translateY(0);    opacity:1; }
+  }
+
+  .die-reveal { animation: diceIn .45s cubic-bezier(.34,1.56,.64,1) both; }
+  .die-reveal:nth-child(2) { animation-delay:.07s; }
+  .die-reveal:nth-child(3) { animation-delay:.14s; }
+  .die-reveal:nth-child(4) { animation-delay:.21s; }
+  .die-reveal:nth-child(5) { animation-delay:.28s; }
+
+  .bid-pop { animation: bidPop .3s ease-out both; }
+  .slide-up { animation: slideUp .25s ease-out both; }
+  .player-current { animation: turnGlow 1.8s ease-in-out infinite; border-color: #f59e0b !important; }
+  .player-elim { animation: eliminated .4s ease-out forwards; pointer-events:none; }
+
+  /* ── HP dots ─────────────────────────────────────────────── */
+  .hp { width:.5rem; height:.5rem; border-radius:50%; display:inline-block; transition: background .3s; }
+  .hp.on  { background:#f59e0b; }
+  .hp.off { background:#1e3a5f; }
+
+  /* ── Timer bar ───────────────────────────────────────────── */
+  .timer-track { height:3px; border-radius:9999px; background:#0f172a; overflow:hidden; }
+  .timer-fill  { height:100%; border-radius:9999px; transition: width .25s linear, background .6s; }
+
+  /* ── Value selector buttons ──────────────────────────────── */
   .val-btn {
-    width: 2.5rem; height: 2.5rem;
-    display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 0.4rem; border: 2px solid #475569;
-    font-size: 1.1rem; font-weight: 700; cursor: pointer; transition: all 0.1s;
-    background: #1e293b; color: #94a3b8;
+    width:2.75rem; height:2.75rem;
+    display:inline-flex; align-items:center; justify-content:center;
+    border-radius:.5rem; border:2px solid #1e293b;
+    font-size:1.1rem; font-weight:800; cursor:pointer; transition:all .15s;
+    background:#0f172a; color:#475569;
   }
-  .val-btn:hover { border-color: #f59e0b; color: #fbbf24; }
-  .val-btn.selected { border-color: #f59e0b; color: #fbbf24; background: #1c1408; }
-  .val-btn.v1 { border-color: #92400e; color: #fbbf24; }
-  .val-btn.v1.selected { border-color: #f59e0b; background: #1c1408; }
+  .val-btn:hover { transform:scale(1.1); }
+  .val-btn.vs1 { border-color:#f59e0b; color:#fbbf24; background:#1c1408; }
+  .val-btn.vs2 { border-color:#64748b; color:#e2e8f0; background:#1e293b; }
+  .val-btn.vs3 { border-color:#34d399; color:#6ee7b7; background:#071510; }
+  .val-btn.vs4 { border-color:#818cf8; color:#a5b4fc; background:#07071a; }
+  .val-btn.vs5 { border-color:#c084fc; color:#d8b4fe; background:#0f071a; }
+  .val-btn.vs6 { border-color:#f87171; color:#fca5a5; background:#1a0707; }
+  .val-btn.idle1 { color:#78350f; border-color:#292524; }
+  .val-btn.idle1:hover { border-color:#f59e0b; color:#fbbf24; }
 
-  .player-card {
-    padding: 0.5rem 0.75rem; border-radius: 0.5rem;
-    border: 1px solid #334155; background: #1e293b;
-    min-width: 5.5rem; text-align: center;
+  /* ── Primary buttons ─────────────────────────────────────── */
+  .btn-raise {
+    padding:.65rem 1.6rem; border-radius:.6rem; font-weight:700; font-size:.95rem;
+    background:#d97706; color:#fff; transition:all .15s;
+    box-shadow:0 2px 10px rgba(217,119,6,.4);
   }
-  .player-card.is-me { border-color: #3b82f6; }
-  .player-card.is-current { border-color: #f59e0b; }
-  .player-card.eliminated { opacity: 0.3; }
+  .btn-raise:hover:not(:disabled) { background:#b45309; transform:translateY(-1px); box-shadow:0 4px 14px rgba(217,119,6,.55); }
+  .btn-raise:active:not(:disabled) { transform:translateY(0); }
+  .btn-raise:disabled { opacity:.35; cursor:not-allowed; box-shadow:none; }
 
-  .btn-primary {
-    padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-weight: 600;
-    background: #d97706; color: #fff; transition: background 0.15s;
-  }
-  .btn-primary:hover:not(:disabled) { background: #b45309; }
-  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-liar {
-    padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-weight: 600;
-    background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626;
-    transition: background 0.15s;
+    padding:.65rem 1.25rem; border-radius:.6rem; font-weight:700; font-size:.95rem;
+    background:#7f1d1d; color:#fca5a5; border:2px solid #dc2626;
+    transition:all .15s; box-shadow:0 2px 8px rgba(220,38,38,.2);
   }
-  .btn-liar:hover:not(:disabled) { background: #991b1b; }
-  .btn-liar:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-liar:hover:not(:disabled) { background:#991b1b; transform:translateY(-1px); box-shadow:0 4px 12px rgba(220,38,38,.45); }
+  .btn-liar:disabled { opacity:.35; cursor:not-allowed; box-shadow:none; }
+
   .btn-exact {
-    padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-weight: 600;
-    background: #431407; color: #fdba74; border: 1px solid #ea580c;
-    transition: background 0.15s;
+    padding:.65rem 1.25rem; border-radius:.6rem; font-weight:700; font-size:.95rem;
+    background:#431407; color:#fdba74; border:2px solid #ea580c;
+    transition:all .15s; box-shadow:0 2px 8px rgba(234,88,12,.2);
   }
-  .btn-exact:hover:not(:disabled) { background: #7c2d12; }
-  .btn-exact:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-exact:hover:not(:disabled) { background:#7c2d12; transform:translateY(-1px); box-shadow:0 4px 12px rgba(234,88,12,.45); }
+  .btn-exact:disabled { opacity:.35; cursor:not-allowed; box-shadow:none; }
 
-  .bid-display { font-size: 2.5rem; font-weight: 900; color: #f59e0b; line-height: 1; }
-  .bid-value-box {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 3rem; height: 3rem; border-radius: 0.5rem;
-    border: 3px solid #f59e0b; font-size: 1.6rem; font-weight: 900;
-    background: #1c1408; color: #fbbf24; vertical-align: middle;
-  }
-  .log-raise { color: #93c5fd; }
-  .log-liar  { color: #f87171; }
-  .log-exact { color: #fb923c; }
-  .log-round { color: #64748b; font-style: italic; }
-
+  /* ── Seat cards (lobby) ──────────────────────────────────── */
   .seat-card {
-    padding: 0.75rem 1rem; border-radius: 0.5rem;
-    border: 1px solid #334155; background: #1e293b;
-    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+    padding:.8rem 1rem; border-radius:.65rem;
+    border:1px solid #1e293b; background:#0f172a;
+    display:flex; align-items:center; justify-content:space-between; gap:.75rem;
+    transition: border-color .2s, background .2s;
   }
-  .seat-card.is-me { border-color: #3b82f6; }
-  .seat-card.empty { border-style: dashed; opacity: 0.6; }
+  .seat-card:not(.empty):hover { background:#14213d; }
+  .seat-card.is-me     { border-color:#3b82f6; background:#0c1929; }
+  .seat-card.empty     { border-style:dashed; border-color:#1e293b; opacity:.6; }
+  .seat-card.is-creator { border-color:#f59e0b; background:#1c1408; }
 </style>
 
 <div x-data="roomPage('{{ room_code }}')" x-init="init()">
 
   <!-- ══════════════════ CONNECTING ══════════════════ -->
   <template x-if="phase === 'connecting'">
-    <div class="text-center py-16 text-slate-500 animate-pulse">Connexion…</div>
-  </template>
-
-  <!-- ══════════════════ ERROR ══════════════════════ -->
-  <template x-if="phase === 'error'">
-    <div class="max-w-sm mx-auto text-center space-y-4 py-12">
-      <div class="text-4xl">😕</div>
-      <div class="text-slate-300 font-medium" x-text="errorMsg"></div>
-      <a href="/" class="btn-primary inline-block mt-2">Retour au lobby</a>
+    <div class="text-center py-20 space-y-3">
+      <div class="text-4xl animate-spin inline-block">🎲</div>
+      <div class="text-slate-500 text-sm animate-pulse">Connexion à la room…</div>
     </div>
   </template>
 
-  <!-- ══════════════════ LOBBY ══════════════════════ -->
+  <!-- ══════════════════ ERROR ═══════════════════════ -->
+  <template x-if="phase === 'error'">
+    <div class="max-w-sm mx-auto text-center space-y-4 py-14">
+      <div class="text-5xl">😕</div>
+      <div class="text-slate-200 font-semibold text-lg" x-text="errorMsg"></div>
+      <a href="/" class="btn-raise inline-block mt-2">← Retour au lobby</a>
+    </div>
+  </template>
+
+  <!-- ══════════════════ LOBBY ═══════════════════════ -->
   <template x-if="phase === 'lobby'">
-    <div class="max-w-lg mx-auto space-y-5">
+    <div class="max-w-lg mx-auto space-y-6">
+
+      <!-- Header -->
       <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-slate-200">Salle d'attente</h2>
+        <div>
+          <h2 class="text-xl font-bold text-slate-100">Salle d'attente</h2>
+          <p class="text-slate-500 text-xs mt-0.5">Partagez le code pour inviter vos amis</p>
+        </div>
         <div class="flex items-center gap-2">
-          <span class="text-slate-500 text-sm">Code :</span>
           <button @click="copyCode()"
-            class="font-mono font-bold text-brand text-lg tracking-widest bg-slate-800 border border-slate-600 rounded-lg px-3 py-1 hover:border-brand transition"
+            class="font-mono font-bold text-brand text-xl tracking-widest
+                   bg-slate-800 border-2 border-slate-600 hover:border-brand
+                   rounded-xl px-4 py-2 transition-all hover:bg-slate-700"
             x-text="roomCode">
           </button>
-          <span x-show="copied" class="text-green-400 text-xs" x-cloak>✓ copié</span>
+          <span x-show="copied" x-cloak
+                class="text-green-400 text-xs font-semibold px-2 py-1 bg-green-900/30 rounded-lg border border-green-800">
+            ✓ copié
+          </span>
         </div>
       </div>
-      <p class="text-slate-500 text-xs">Partagez ce code avec vos amis pour qu'ils vous rejoignent.</p>
 
-      <!-- Seats list -->
+      <!-- Seats -->
       <div class="space-y-2">
         <template x-for="(seat, i) in seats" :key="i">
-          <div :class="{'seat-card': true, 'is-me': seat.token === myToken}">
+          <div :class="{
+            'seat-card': true,
+            'is-me':      !seat.is_bot && seat.player_id === myPlayerId,
+            'is-creator': !seat.is_bot && seat.player_id === 0,
+          }">
             <div class="flex items-center gap-3 min-w-0">
-              <span class="text-slate-400 text-xs font-mono w-4" x-text="i+1"></span>
-              <div>
-                <div class="font-semibold text-sm"
-                     :class="seat.is_bot ? 'text-emerald-400' : (seat.token === myToken ? 'text-blue-400' : 'text-slate-200')"
-                     x-text="seat.pseudo || (seat.is_bot ? `Bot ${i+1}` : '—')">
+              <span class="text-slate-600 text-xs font-mono w-5 text-center" x-text="i+1"></span>
+              <div class="text-xl">
+                <span x-text="seat.is_bot ? '🤖' : (seat.player_id === 0 ? '👑' : '🧑')"></span>
+              </div>
+              <div class="min-w-0">
+                <div class="font-semibold text-sm truncate"
+                     :class="seat.is_bot ? 'text-emerald-400' : (seat.player_id === myPlayerId ? 'text-blue-300' : 'text-slate-100')"
+                     x-text="seat.pseudo">
                 </div>
                 <div class="text-xs text-slate-600"
-                     x-text="seat.is_bot ? seat.bot_type : (seat.connected ? 'connecté' : 'déconnecté')">
+                     x-text="seat.is_bot ? seat.bot_type?.toUpperCase() : (seat.connected ? 'connecté' : 'hors ligne')">
                 </div>
               </div>
             </div>
-            <!-- Creator controls: remove bot -->
             <template x-if="isCreator && seat.is_bot">
               <button @click="removeBot(seat.player_id)"
-                class="text-xs text-slate-500 hover:text-red-400 transition px-2 py-1 rounded border border-slate-700 hover:border-red-800">
+                class="text-xs text-slate-500 hover:text-red-400 px-2 py-1 rounded-lg border border-slate-700 hover:border-red-800 transition">
                 Retirer
               </button>
             </template>
-            <template x-if="!seat.is_bot && seat.token !== myToken">
+            <template x-if="!seat.is_bot && seat.player_id !== myPlayerId">
               <div class="flex items-center gap-2">
-                <span class="text-green-400 text-xs">✓</span>
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
                 <template x-if="isCreator">
                   <button @click="kickPlayer(seat.player_id)"
-                    class="text-xs text-slate-600 hover:text-red-400 transition px-2 py-0.5 rounded border border-slate-700 hover:border-red-800">
+                    class="text-xs text-slate-600 hover:text-red-400 px-2 py-0.5 rounded border border-slate-700 hover:border-red-800 transition">
                     Kick
                   </button>
                 </template>
@@ -146,21 +209,20 @@
         </template>
 
         <!-- Empty seats -->
-        <template x-for="i in emptySeats" :key="'empty-'+i">
+        <template x-for="i in emptySeats" :key="'e'+i">
           <div class="seat-card empty">
             <div class="flex items-center gap-3">
-              <span class="text-slate-600 text-xs font-mono w-4" x-text="seats.length + i"></span>
+              <span class="text-slate-600 text-xs font-mono w-5 text-center" x-text="seats.length + i"></span>
               <span class="text-slate-600 text-sm italic">Siège libre</span>
             </div>
-            <!-- Creator: add bot -->
             <template x-if="isCreator">
-              <div class="flex gap-1">
+              <div class="flex gap-1.5">
                 <button @click="addBot('threshold')"
-                  class="text-xs px-2 py-1 rounded border border-slate-600 text-slate-400 hover:border-brand hover:text-brand transition">
+                  class="text-xs px-2.5 py-1 rounded-lg border border-slate-700 text-slate-400 hover:border-brand hover:text-brand transition">
                   + Threshold
                 </button>
                 <button @click="addBot('cfr')"
-                  class="text-xs px-2 py-1 rounded border border-emerald-800 text-emerald-500 hover:border-emerald-500 transition">
+                  class="text-xs px-2.5 py-1 rounded-lg border border-emerald-900 text-emerald-500 hover:border-emerald-400 transition">
                   + CFR
                 </button>
               </div>
@@ -169,16 +231,16 @@
         </template>
       </div>
 
-      <!-- Start button (creator only) -->
+      <!-- Start -->
       <template x-if="isCreator">
         <button @click="startGame()"
           :disabled="seats.length < 2"
-          class="btn-primary w-full text-base py-3">
+          class="btn-raise w-full text-base py-3.5 rounded-xl">
           Lancer la partie ▶
         </button>
       </template>
       <template x-if="!isCreator">
-        <div class="text-center text-slate-500 text-sm animate-pulse py-2">
+        <div class="text-center text-slate-500 text-sm animate-pulse py-3">
           En attente que le créateur lance la partie…
         </div>
       </template>
@@ -187,162 +249,194 @@
 
   <!-- ══════════════════ GAME ════════════════════════ -->
   <template x-if="phase === 'playing' || phase === 'paused'">
-    <div class="space-y-4">
+    <div class="space-y-4 max-w-3xl mx-auto">
 
       <!-- Pause overlay -->
       <template x-if="phase === 'paused'">
-        <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div class="bg-slate-800 border border-slate-600 rounded-2xl p-8 max-w-sm w-full mx-4 text-center space-y-4">
-            <div class="text-4xl">⏸️</div>
-            <div class="text-lg font-bold text-slate-200" x-text="`${pausedPseudo} s'est déconnecté`"></div>
-            <div class="text-slate-500 text-sm">Partie en pause — en attente de reconnexion</div>
-            <div class="text-slate-400 text-sm" x-show="pauseDeadline">
-              Reprend jusqu'à <span x-text="formatDeadline()"></span>
+        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div class="bg-slate-800 border border-slate-600 rounded-2xl p-8 max-w-sm w-full mx-4 text-center space-y-4 shadow-2xl">
+            <div class="text-5xl">⏸</div>
+            <div class="text-lg font-bold text-slate-100" x-text="`${pausedPseudo} s'est déconnecté`"></div>
+            <div class="text-slate-400 text-sm">Partie en pause — attente de reconnexion</div>
+            <div class="text-slate-500 text-sm" x-show="pauseDeadline">
+              Jusqu'à <span class="text-slate-300 font-mono" x-text="formatDeadline()"></span>
             </div>
           </div>
         </div>
       </template>
 
-      <!-- Player status bar -->
-      <div class="flex items-start gap-2 flex-wrap">
-        <div class="text-slate-500 text-xs font-mono pt-2 mr-1"
-             x-text="`Manche ${gameState?.round_num ?? 1}`"></div>
+      <!-- ── Top bar: round info ─────────────────────────── -->
+      <div class="flex items-center justify-between px-1">
+        <div class="text-slate-400 text-sm font-mono font-semibold" x-text="`Manche ${gameState?.round_num ?? 1}`"></div>
+        <div class="text-slate-600 text-xs" x-text="`${totalDice()} dés en jeu`"></div>
+      </div>
+
+      <!-- ── Player strip ────────────────────────────────── -->
+      <div class="flex gap-2 flex-wrap">
         <template x-for="p in (gameState?.players ?? [])" :key="p.id">
           <div :class="{
-            'player-card': true,
-            'is-me': p.id === myPlayerId,
-            'is-current': gameState?.current_player === p.id,
-            'eliminated': !isActive(p.id),
+            'flex flex-col items-center gap-1.5 rounded-xl border px-3 py-2.5 min-w-[5rem] text-center transition-all duration-300': true,
+            'bg-slate-900 border-slate-700': true,
+            'player-current': gameState?.current_player === p.id && isActive(p.id),
+            'player-elim':    !isActive(p.id),
+            'border-blue-600 bg-blue-950/40': p.id === myPlayerId && isActive(p.id) && gameState?.current_player !== p.id,
           }">
-            <div class="text-xs font-semibold mb-1"
-                 :class="p.id === myPlayerId ? 'text-blue-400' : 'text-slate-400'"
+            <!-- Avatar + name -->
+            <div class="text-lg leading-none" x-text="playerEmoji(p.id)"></div>
+            <div class="text-xs font-bold leading-none truncate max-w-[4.5rem]"
+                 :class="p.id === myPlayerId ? 'text-blue-300' : 'text-slate-300'"
                  x-text="playerLabel(p.id)">
             </div>
-            <div class="flex justify-center gap-0.5 flex-wrap">
-              <template x-for="j in p.n_dice" :key="j">
-                <span class="text-sm" :class="p.id === myPlayerId ? 'text-blue-400' : 'text-slate-500'">🎲</span>
-              </template>
-              <template x-if="p.n_dice === 0">
-                <span class="text-xs text-slate-600">éliminé</span>
+            <!-- HP dots -->
+            <div class="flex gap-0.5" x-show="isActive(p.id)">
+              <template x-for="j in 5" :key="j">
+                <span :class="['hp', j <= p.n_dice ? 'on' : 'off']"></span>
               </template>
             </div>
+            <div x-show="!isActive(p.id)" class="text-lg leading-none">☠️</div>
+            <!-- "VOUS" badge -->
+            <div x-show="p.id === myPlayerId" class="text-[.6rem] font-bold text-blue-400 uppercase tracking-widest">vous</div>
           </div>
         </template>
       </div>
 
-      <!-- Main grid -->
+      <!-- ── Turn banner (my turn) ─────────────────────── -->
+      <template x-if="isMyTurn()">
+        <div class="rounded-xl border-2 border-brand/50 bg-brand/5 px-4 py-2.5 space-y-2 slide-up">
+          <div class="flex items-center justify-between">
+            <span class="text-brand font-bold text-sm tracking-wide">🎲 C'EST VOTRE TOUR</span>
+            <span class="text-slate-500 text-xs font-mono" x-text="Math.ceil(turnTimerWidth * .9) + 's'"></span>
+          </div>
+          <div class="timer-track">
+            <div class="timer-fill"
+                 :style="`width:${turnTimerWidth}%; background:${turnTimerColor()}`">
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── Main grid ───────────────────────────────────── -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-        <!-- Left: my dice + actions -->
-        <div class="space-y-4">
+        <!-- LEFT: my dice + actions -->
+        <div class="space-y-3">
 
           <!-- My dice -->
-          <div class="bg-slate-800 rounded-xl border border-blue-900/60 p-4">
-            <div class="text-xs text-slate-500 uppercase tracking-wide mb-3">Mes dés</div>
+          <div class="bg-slate-900 rounded-xl border border-slate-700/60 p-4">
+            <div class="text-xs text-slate-600 uppercase tracking-widest mb-3 font-semibold">Vos dés</div>
             <div class="flex gap-2 flex-wrap">
-              <template x-for="(v, i) in myDice()" :key="i">
-                <div :class="`game-die face-${v}`" x-text="v"></div>
+              <template x-for="(v, i) in myDice()" :key="`${diceRevealKey}-${i}`">
+                <div :class="`gdie gdie-lg die-reveal v${v}`" x-text="v"></div>
               </template>
               <template x-if="!myDice().length">
-                <span class="text-slate-600 italic text-sm">Éliminé</span>
+                <div class="text-slate-600 italic text-sm pt-1">Éliminé ☠️</div>
               </template>
             </div>
           </div>
 
           <!-- Actions -->
-          <div class="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-4">
-            <div class="text-xs text-slate-500 uppercase tracking-wide">Actions</div>
+          <div class="bg-slate-900 rounded-xl border border-slate-700/60 p-4 space-y-4">
+            <div class="text-xs text-slate-600 uppercase tracking-widest font-semibold">Enchère</div>
 
-            <!-- Raise form -->
-            <div class="space-y-3">
-              <div class="flex items-center gap-3 flex-wrap">
-                <div class="flex items-center gap-2">
-                  <button @click="bidQty = Math.max(minQtyForVal(bidVal), bidQty - 1)"
-                    class="w-8 h-8 rounded bg-slate-700 border border-slate-600 text-slate-300 font-bold hover:bg-slate-600 flex items-center justify-center">−</button>
-                  <span class="w-8 text-center font-bold text-xl text-slate-100" x-text="bidQty"></span>
-                  <button @click="bidQty++"
-                    class="w-8 h-8 rounded bg-slate-700 border border-slate-600 text-slate-300 font-bold hover:bg-slate-600 flex items-center justify-center">+</button>
-                </div>
-                <span class="text-slate-500">×</span>
-                <div class="flex gap-1">
-                  <template x-for="v in [1,2,3,4,5,6]" :key="v">
-                    <button @click="setVal(v)"
-                      :class="valBtnClass(v)" x-text="v">
-                    </button>
-                  </template>
-                </div>
+            <!-- Qty + value row -->
+            <div class="flex items-center gap-3 flex-wrap">
+              <!-- Quantity -->
+              <div class="flex items-center gap-2 bg-slate-800 rounded-lg px-2 py-1.5">
+                <button @click="bidQty = Math.max(minQtyForVal(bidVal), bidQty - 1)"
+                  class="w-7 h-7 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold text-lg flex items-center justify-center transition">−</button>
+                <span class="w-8 text-center font-black text-2xl text-slate-100 tabular-nums" x-text="bidQty"></span>
+                <button @click="bidQty++"
+                  class="w-7 h-7 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold text-lg flex items-center justify-center transition">+</button>
               </div>
-              <button @click="sendAction('raise')"
-                :disabled="!isMyTurn() || !isBidLegal()"
-                class="btn-primary w-full">Miser</button>
+              <span class="text-slate-600 font-bold">×</span>
+              <!-- Value -->
+              <div class="flex gap-1.5">
+                <template x-for="v in [1,2,3,4,5,6]" :key="v">
+                  <button @click="setVal(v)" :class="valBtnClass(v)" x-text="v"></button>
+                </template>
+              </div>
             </div>
 
+            <!-- Raise button -->
+            <button @click="sendAction('raise')"
+              :disabled="!isMyTurn() || !isBidLegal()"
+              class="btn-raise w-full text-base">
+              Miser <span class="opacity-70 text-sm" x-text="`${bidQty} × ${bidVal}`"></span>
+            </button>
+
+            <!-- Liar / Exact -->
             <div class="flex gap-2">
               <button @click="sendAction('liar')"
                 :disabled="!isMyTurn() || !canLiar()"
-                class="btn-liar flex-1">Menteur !</button>
+                class="btn-liar flex-1">
+                😤 Menteur !
+              </button>
               <button @click="sendAction('exact')"
                 :disabled="!isMyTurn() || !canExact()"
-                class="btn-exact flex-1">Exact !</button>
+                class="btn-exact flex-1">
+                🎯 Exact !
+              </button>
             </div>
 
+            <!-- Waiting indicator -->
             <template x-if="!isMyTurn() && phase === 'playing'">
-              <div class="text-center text-slate-600 text-sm animate-pulse">
-                Tour de <span class="text-slate-400" x-text="currentPlayerLabel()"></span>…
+              <div class="text-center text-slate-600 text-sm py-1 flex items-center justify-center gap-2">
+                <span class="inline-block w-2 h-2 rounded-full bg-brand animate-ping"></span>
+                Tour de <span class="text-slate-400 font-semibold ml-1" x-text="currentPlayerLabel()"></span>
               </div>
             </template>
           </div>
         </div>
 
-        <!-- Right: bid + log -->
-        <div class="space-y-4">
+        <!-- RIGHT: current bid + log -->
+        <div class="space-y-3">
+
           <!-- Current bid -->
-          <div class="bg-slate-800 rounded-xl border border-slate-700 p-4">
-            <div class="text-xs text-slate-500 uppercase tracking-wide mb-2">Enchère courante</div>
+          <div class="bg-slate-900 rounded-xl border border-slate-700/60 p-4">
+            <div class="text-xs text-slate-600 uppercase tracking-widest mb-3 font-semibold">Enchère courante</div>
             <template x-if="lastBid()">
-              <div class="text-center">
-                <div class="flex items-center justify-center gap-3">
-                  <span class="bid-display" x-text="lastBid().quantity"></span>
-                  <span class="bid-display text-slate-500">×</span>
-                  <span class="bid-value-box" x-text="lastBid().value"></span>
+              <div class="text-center space-y-2" :key="bidAnimKey">
+                <div class="flex items-center justify-center gap-4 bid-pop">
+                  <span class="text-5xl font-black text-slate-100 tabular-nums" x-text="lastBid().quantity"></span>
+                  <span class="text-3xl text-slate-600 font-bold">×</span>
+                  <div :class="`gdie gdie-lg v${lastBid().value}`" x-text="lastBid().value"></div>
                 </div>
-                <div class="text-slate-500 text-xs mt-2"
-                     x-text="`par ${playerLabel(lastBid().player_id)}`">
+                <div class="text-slate-500 text-xs">
+                  par <span class="font-semibold text-slate-300" x-text="playerLabel(lastBid().player_id)"></span>
                 </div>
               </div>
             </template>
             <template x-if="!lastBid()">
-              <div class="text-center text-slate-600 italic text-sm py-2">Aucune enchère</div>
+              <div class="text-center text-slate-600 italic text-sm py-4">Aucune enchère — ouvrez la manche !</div>
             </template>
           </div>
 
-          <!-- Log -->
-          <div class="bg-slate-800 rounded-xl border border-slate-700 p-4">
-            <div class="text-xs text-slate-500 uppercase tracking-wide mb-3">Journal</div>
-            <div class="space-y-1 max-h-72 overflow-y-auto text-sm font-mono" id="game-log">
+          <!-- Activity feed -->
+          <div class="bg-slate-900 rounded-xl border border-slate-700/60 p-4">
+            <div class="text-xs text-slate-600 uppercase tracking-widest mb-3 font-semibold">Activité</div>
+            <div class="space-y-0 max-h-64 overflow-y-auto pr-1" id="game-log">
               <template x-if="log.length === 0">
-                <div class="text-slate-600 italic">La partie commence…</div>
+                <div class="text-slate-600 italic text-sm">La partie commence…</div>
               </template>
               <template x-for="(entry, i) in log" :key="i">
-                <div :class="{
-                  'log-raise': entry.type==='action' && entry.action_label?.startsWith('Mise'),
-                  'log-liar':  entry.type==='action' && entry.action_label==='Menteur !',
-                  'log-exact': entry.type==='action' && entry.action_label==='Exact !',
-                  'log-round': entry.type==='round_start',
-                }">
-                  <template x-if="entry.type === 'round_start'">
-                    <div class="border-t border-slate-700 mt-1 pt-1 text-slate-600"
-                         x-text="`── ${entry.action_label} ──`"></div>
-                  </template>
-                  <template x-if="entry.type !== 'round_start'">
-                    <div>
-                      <span class="text-slate-400" x-text="`${entry.player_label} : `"></span>
-                      <span x-text="entry.action_label"></span>
-                      <template x-if="entry.detail">
-                        <span class="text-slate-500 text-xs" x-text="` — ${entry.detail}`"></span>
-                      </template>
-                    </div>
-                  </template>
+                <div class="flex items-start gap-2 py-1.5 border-b border-slate-800 last:border-0">
+                  <!-- Icon -->
+                  <span class="text-sm flex-shrink-0 mt-0.5" x-text="logIcon(entry)"></span>
+                  <!-- Content -->
+                  <div class="min-w-0">
+                    <template x-if="entry.type === 'round_start'">
+                      <div class="text-slate-600 text-xs italic" x-text="entry.action_label"></div>
+                    </template>
+                    <template x-if="entry.type !== 'round_start'">
+                      <div class="text-xs leading-snug">
+                        <span class="font-bold" :class="logNameColor(entry)" x-text="entry.player_label + ' '"></span>
+                        <span :class="logTextColor(entry)" x-text="entry.action_label"></span>
+                        <template x-if="entry.detail">
+                          <span class="text-slate-600 ml-1" x-text="'— ' + entry.detail"></span>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
                 </div>
               </template>
             </div>
@@ -352,44 +446,51 @@
 
       <!-- Round result modal -->
       <template x-if="roundResult && phase === 'playing'">
-        <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+        <div class="fixed inset-0 bg-black/65 flex items-center justify-center z-50 backdrop-blur-sm"
              @click.self="roundResult = null">
-          <div class="bg-slate-800 border border-slate-600 rounded-2xl p-8 max-w-sm w-full mx-4 text-center space-y-4 shadow-2xl">
-            <div class="text-4xl" x-text="roundEmoji()"></div>
-            <div class="text-lg font-bold text-slate-100" x-text="roundTitle()"></div>
+          <div class="bg-slate-800 border border-slate-600 rounded-2xl p-8 max-w-xs w-full mx-4 text-center space-y-4 shadow-2xl slide-up">
+            <div class="text-5xl" x-text="roundEmoji()"></div>
+            <div class="text-xl font-bold text-slate-100" x-text="roundTitle()"></div>
             <div class="text-slate-400 text-sm" x-text="roundDetail()"></div>
-            <button @click="roundResult = null" class="btn-primary w-full">Continuer →</button>
+            <button @click="roundResult = null" class="btn-raise w-full">Continuer →</button>
           </div>
         </div>
       </template>
     </div>
   </template>
 
-  <!-- ══════════════════ AFK WARNING ════════════════ -->
+  <!-- ══════════════════ AFK WARNING ═════════════════ -->
   <template x-if="afkWarning">
-    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50
-                bg-yellow-900/90 border border-yellow-600 text-yellow-200
-                rounded-xl px-5 py-3 text-sm font-semibold shadow-xl flex items-center gap-3">
-      <span>⏳</span>
-      <span x-text="afkWarning.player_id === myPlayerId
-        ? `Vous êtes inactif — jeu automatique dans ${afkWarning.seconds_left}s`
-        : `${afkWarning.pseudo} est inactif — jeu automatique dans ${afkWarning.seconds_left}s`">
-      </span>
+    <div class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 slide-up
+                bg-yellow-950/95 border border-yellow-600/70 text-yellow-200
+                rounded-2xl px-5 py-3.5 text-sm font-semibold shadow-2xl flex items-center gap-3 backdrop-blur-sm">
+      <span class="text-xl animate-spin inline-block" style="animation-duration:2s">⏳</span>
+      <div>
+        <div x-text="afkWarning.player_id === myPlayerId
+          ? 'Vous êtes inactif !'
+          : `${afkWarning.pseudo} est inactif`" class="font-bold"></div>
+        <div class="text-yellow-400/70 text-xs" x-text="`Jeu automatique dans ${afkWarning.seconds_left}s`"></div>
+      </div>
     </div>
   </template>
 
-  <!-- ══════════════════ GAME OVER ══════════════════ -->
+  <!-- ══════════════════ GAME OVER ═══════════════════ -->
   <template x-if="phase === 'game_over'">
-    <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div class="bg-slate-800 border border-slate-600 rounded-2xl p-8 max-w-sm w-full mx-4 text-center space-y-5 shadow-2xl">
-        <div class="text-5xl" x-text="winner === myPlayerId ? '🏆' : '💀'"></div>
-        <div class="text-2xl font-bold"
-             :class="winner === myPlayerId ? 'text-brand' : 'text-slate-300'"
-             x-text="winner === myPlayerId ? 'Victoire !' : `${winnerPseudo} gagne !`">
+    <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-md">
+      <div class="bg-slate-800 border border-slate-600 rounded-2xl p-8 max-w-sm w-full mx-4 text-center space-y-5 shadow-2xl slide-up">
+        <div class="text-6xl" x-text="winner === myPlayerId ? '🏆' : '💀'"></div>
+        <div>
+          <div class="text-3xl font-black mb-1"
+               :class="winner === myPlayerId ? 'text-brand' : 'text-slate-300'"
+               x-text="winner === myPlayerId ? 'Victoire !' : `Défaite`">
+          </div>
+          <div class="text-slate-400 text-sm"
+               x-text="winner === myPlayerId ? 'Vous avez gagné la partie !' : `${winnerPseudo} remporte la partie`">
+          </div>
         </div>
         <template x-if="isCreator">
           <button @click="requestRematch()"
-            class="btn-primary block w-full text-base py-3">
+            class="btn-raise block w-full text-base py-3.5 rounded-xl">
             🔄 Rejouer !
           </button>
         </template>
@@ -398,8 +499,8 @@
             En attente que le créateur relance…
           </div>
         </template>
-        <a href="/" class="block text-slate-500 hover:text-slate-300 text-sm transition mt-1">
-          Nouveau lobby →
+        <a href="/" class="block text-slate-600 hover:text-slate-400 text-sm transition">
+          ← Nouveau lobby
         </a>
       </div>
     </div>
@@ -411,7 +512,7 @@
 function roomPage(roomCode) {
   return {
     roomCode,
-    phase: 'connecting',   // connecting | lobby | playing | paused | game_over | error
+    phase: 'connecting',
     errorMsg: '',
     myToken: '',
     myPlayerId: -1,
@@ -430,15 +531,21 @@ function roomPage(roomCode) {
     bidVal: 2,
     pausedPseudo: '',
     pauseDeadline: null,
-    pseudoMap: {},   // player_id → pseudo
+    pseudoMap: {},
     afkWarning: null,
     afkTimer: null,
+    // turn timer
+    turnTimerWidth: 100,
+    turnTimerInterval: null,
+    // bid animation key
+    bidAnimKey: 0,
+    // dice reveal key (increments each round)
+    diceRevealKey: 0,
 
     init() {
-      this.myToken = sessionStorage.getItem('perudo_token') || '';
+      this.myToken    = sessionStorage.getItem('perudo_token')     || '';
       this.myPlayerId = parseInt(sessionStorage.getItem('perudo_player_id') ?? '-1');
-      this.myPseudo = sessionStorage.getItem('perudo_pseudo') || '';
-
+      this.myPseudo   = sessionStorage.getItem('perudo_pseudo')    || '';
       if (!this.myToken) {
         this.errorMsg = 'Session expirée. Retournez au lobby.';
         this.phase = 'error';
@@ -449,23 +556,12 @@ function roomPage(roomCode) {
 
     connectWS() {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const url = `${proto}://${location.host}/ws/${this.roomCode}/${this.myToken}`;
-      this.ws = new WebSocket(url);
-
-      this.ws.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data);
-        this.handleMessage(msg);
-      };
-      this.ws.onerror = () => {
-        this.errorMsg = 'Erreur WebSocket.';
-        this.phase = 'error';
-      };
-      this.ws.onclose = (ev) => {
+      this.ws = new WebSocket(`${proto}://${location.host}/ws/${this.roomCode}/${this.myToken}`);
+      this.ws.onmessage = ev => this.handleMessage(JSON.parse(ev.data));
+      this.ws.onerror   = ()  => { this.errorMsg = 'Erreur WebSocket.'; this.phase = 'error'; };
+      this.ws.onclose   = ev  => {
         if (this.phase !== 'game_over' && this.phase !== 'error') {
-          if (ev.reason) {
-            this.errorMsg = ev.reason;
-            this.phase = 'error';
-          }
+          if (ev.reason) { this.errorMsg = ev.reason; this.phase = 'error'; }
         }
       };
     },
@@ -475,57 +571,67 @@ function roomPage(roomCode) {
         this.phase = 'lobby';
         this.seats = msg.slots;
         this.nSeats = msg.n_seats;
-        this.isCreator = (this.seats[0]?.token === this.myToken) ||
-                         (this.myPlayerId === 0);
-        // Rebuild pseudoMap
+        this.isCreator = (this.myPlayerId === 0);
         this.seats.forEach(s => { this.pseudoMap[s.player_id] = s.pseudo; });
       }
       else if (msg.type === 'game_start') {
-        this.gameState = msg.state;
+        this.gameState  = msg.state;
         this.myPlayerId = msg.your_player_id;
-        this.isCreator = (this.myPlayerId === 0);
-        if (msg.pseudos) {
-          Object.assign(this.pseudoMap, msg.pseudos);
-        }
+        this.isCreator  = (this.myPlayerId === 0);
+        if (msg.pseudos) Object.assign(this.pseudoMap, msg.pseudos);
         this.phase = 'playing';
+        this.diceRevealKey++;
         this.resetBidForm();
+        if (this.isMyTurn()) this.startTurnTimer();
       }
       else if (msg.type === 'game_update') {
+        const wasMyTurn = this.isMyTurn();
         this.gameState = msg.state;
         this.log.push(...(msg.log ?? []));
-        if (msg.round_result) {
-          this.roundResult = msg.round_result;
-        }
+        if (msg.round_result) this.roundResult = msg.round_result;
         this.afkWarning = null;
         if (this.afkTimer) clearTimeout(this.afkTimer);
+        // Round changed? animate dice
+        const newRound = msg.log?.some(e => e.type === 'round_start');
+        if (newRound) this.diceRevealKey++;
+        // New bid? animate bid display
+        if (msg.state?.bids?.length) { this.bidAnimKey++; }
         this.resetBidForm();
         this.$nextTick(() => this.scrollLog());
+        // Turn timer
+        if (this.isMyTurn()) {
+          this.startTurnTimer();
+        } else {
+          this.clearTurnTimer();
+        }
       }
       else if (msg.type === 'game_paused') {
         this.phase = 'paused';
-        this.pausedPseudo = msg.pseudo;
-        this.pauseDeadline = msg.resume_before * 1000; // ms
+        this.pausedPseudo  = msg.pseudo;
+        this.pauseDeadline = msg.resume_before * 1000;
+        this.clearTurnTimer();
       }
       else if (msg.type === 'game_resumed') {
         this.phase = 'playing';
-        this.pausedPseudo = '';
+        this.pausedPseudo  = '';
         this.pauseDeadline = null;
+        if (this.isMyTurn()) this.startTurnTimer();
       }
       else if (msg.type === 'game_over') {
+        this.clearTurnTimer();
         this.log.push(...(msg.log ?? []));
         if (msg.round_result) this.roundResult = msg.round_result;
-        this.winner = msg.winner;
+        this.winner      = msg.winner;
         this.winnerPseudo = msg.winner_pseudo ?? `Joueur ${msg.winner}`;
         this.$nextTick(() => {
           this.scrollLog();
-          setTimeout(() => { this.phase = 'game_over'; }, 1200);
+          setTimeout(() => { this.roundResult = null; this.phase = 'game_over'; }, 1400);
         });
       }
       else if (msg.type === 'afk_warning') {
         this.afkWarning = { player_id: msg.player_id, pseudo: msg.pseudo, seconds_left: msg.seconds_left };
-        // Auto-clear after the countdown
         if (this.afkTimer) clearTimeout(this.afkTimer);
-        this.afkTimer = setTimeout(() => { this.afkWarning = null; }, msg.seconds_left * 1000 + 500);
+        this.afkTimer = setTimeout(() => { this.afkWarning = null; }, msg.seconds_left * 1000 + 600);
       }
       else if (msg.type === 'afk_autoplay') {
         this.afkWarning = null;
@@ -544,48 +650,60 @@ function roomPage(roomCode) {
         this.errorMsg = msg.reason ?? 'La salle a été fermée.';
         this.phase = 'error';
       }
-      else if (msg.type === 'error') {
-        console.warn('Server error:', msg.message);
-      }
     },
 
     send(obj) {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify(obj));
-      }
+      if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
     },
 
-    // ── Lobby actions ──
-    get emptySeats() {
-      return Math.max(0, this.nSeats - this.seats.length);
+    // ── Turn timer ──────────────────────────────────────────
+    startTurnTimer() {
+      this.clearTurnTimer();
+      this.turnTimerWidth = 100;
+      const start = Date.now();
+      const dur   = 90000; // matches AFK_WARNING_SECS
+      this.turnTimerInterval = setInterval(() => {
+        this.turnTimerWidth = Math.max(0, 100 - (Date.now() - start) / dur * 100);
+        if (this.turnTimerWidth === 0) this.clearTurnTimer();
+      }, 250);
     },
-    addBot(botType) { this.send({ type: 'add_bot', bot_type: botType }); },
-    removeBot(pid)  { this.send({ type: 'remove_bot', slot: pid }); },
-    startGame()     { this.send({ type: 'start_game' }); },
+    clearTurnTimer() {
+      if (this.turnTimerInterval) clearInterval(this.turnTimerInterval);
+      this.turnTimerInterval = null;
+    },
+    turnTimerColor() {
+      if (this.turnTimerWidth > 50) return '#4ade80';
+      if (this.turnTimerWidth > 22) return '#f59e0b';
+      return '#ef4444';
+    },
 
-    kickPlayer(pid) { this.send({ type: 'kick', player_id: pid }); },
+    // ── Lobby actions ────────────────────────────────────────
+    get emptySeats() { return Math.max(0, this.nSeats - this.seats.length); },
+    addBot(t)        { this.send({ type: 'add_bot', bot_type: t }); },
+    removeBot(pid)   { this.send({ type: 'remove_bot', slot: pid }); },
+    startGame()      { this.send({ type: 'start_game' }); },
+    kickPlayer(pid)  { this.send({ type: 'kick', player_id: pid }); },
     requestRematch() { this.send({ type: 'rematch' }); },
-
     copyCode() {
       navigator.clipboard.writeText(this.roomCode);
       this.copied = true;
-      setTimeout(() => { this.copied = false; }, 2000);
+      setTimeout(() => { this.copied = false; }, 2200);
     },
 
-    // ── Game actions ──
+    // ── Game actions ─────────────────────────────────────────
     sendAction(type) {
       if (!this.isMyTurn()) return;
       const action = { type };
       if (type === 'raise') { action.quantity = this.bidQty; action.value = this.bidVal; }
+      this.clearTurnTimer();
       this.send({ type: 'action', action });
     },
 
-    // ── Game state helpers ──
-    isMyTurn() {
-      return this.phase === 'playing' && this.gameState?.current_player === this.myPlayerId;
-    },
-    isActive(pid) { return (this.gameState?.active ?? []).includes(pid); },
-    myDice() { return this.gameState?.players?.find(p => p.id === this.myPlayerId)?.dice ?? []; },
+    // ── State helpers ─────────────────────────────────────────
+    isMyTurn()   { return this.phase === 'playing' && this.gameState?.current_player === this.myPlayerId; },
+    isActive(pid){ return (this.gameState?.active ?? []).includes(pid); },
+    myDice()     { return this.gameState?.players?.find(p => p.id === this.myPlayerId)?.dice ?? []; },
+    totalDice()  { return (this.gameState?.players ?? []).reduce((s, p) => s + p.n_dice, 0); },
     lastBid() {
       const b = this.gameState?.bids ?? [];
       return b.length ? b[b.length - 1] : null;
@@ -595,82 +713,95 @@ function roomPage(roomCode) {
       const me = this.gameState?.players?.find(p => p.id === this.myPlayerId);
       return !!this.lastBid() && !me?.exact_used;
     },
+
+    // ── Bid form ──────────────────────────────────────────────
     minQtyForVal(v) {
       const last = this.lastBid();
       if (!last) return 1;
       const pq = last.quantity, pv = last.value;
       if (pv === 1) {
-        if (v === 1) return pq + 1;
-        return 2 * pq + 1;
+        return v === 1 ? pq + 1 : 2 * pq + 1;
       } else {
         if (v === 1) return Math.ceil(pq / 2) + 1;
-        if (v > pv)  return pq;
-        return pq + 1;
+        return v > pv ? pq : pq + 1;
       }
     },
     setVal(v) {
       this.bidVal = v;
-      const minQ = this.minQtyForVal(v);
-      if (this.bidQty < minQ) this.bidQty = minQ;
+      const m = this.minQtyForVal(v);
+      if (this.bidQty < m) this.bidQty = m;
     },
     isBidLegal() {
       const last = this.lastBid();
       if (!last) return true;
-      const q = this.bidQty, v = this.bidVal;
-      const pq = last.quantity, pv = last.value;
-      if (pv === 1) {
-        if (v === 1) return q > pq;
-        return q >= 2 * pq + 1;
-      } else {
-        if (v === 1) return q >= Math.ceil(pq / 2) + 1;
-        return q > pq || (q === pq && v > pv);
-      }
+      const q = this.bidQty, v = this.bidVal, pq = last.quantity, pv = last.value;
+      if (pv === 1) return v === 1 ? q > pq : q >= 2 * pq + 1;
+      if (v === 1)  return q >= Math.ceil(pq / 2) + 1;
+      return q > pq || (q === pq && v > pv);
     },
     resetBidForm() {
       const last = this.lastBid();
-      if (!last) {
-        this.bidQty = 1; this.bidVal = 2;
-      } else if (last.value === 1) {
-        this.bidVal = 2;
-        this.bidQty = 2 * last.quantity + 1;
-      } else {
-        this.bidVal = last.value;
-        this.bidQty = last.quantity + 1;
-      }
+      if (!last) { this.bidQty = 1; this.bidVal = 2; }
+      else if (last.value === 1) { this.bidVal = 2; this.bidQty = 2 * last.quantity + 1; }
+      else { this.bidVal = last.value; this.bidQty = last.quantity + 1; }
     },
     valBtnClass(v) {
-      const base = 'val-btn' + (v === 1 ? ' v1' : '');
-      return this.bidVal === v ? base + ' selected' : base;
+      if (this.bidVal === v) return `val-btn vs${v}`;
+      return v === 1 ? 'val-btn idle1' : 'val-btn';
     },
 
+    // ── Labels & display ──────────────────────────────────────
     playerLabel(pid) {
       if (pid === this.myPlayerId) return this.myPseudo || 'Vous';
-      // from pseudoMap (lobby) or seats
       return this.pseudoMap[pid] ?? this.seats.find(s => s.player_id === pid)?.pseudo ?? `Joueur ${pid}`;
+    },
+    playerEmoji(pid) {
+      const human_ids = this.gameState?.human_ids ?? [];
+      if (!human_ids.includes(pid)) return '🤖';
+      if (pid === 0)               return '👑';
+      return '🧑';
     },
     currentPlayerLabel() {
       const pid = this.gameState?.current_player;
       return pid != null ? this.playerLabel(pid) : '…';
     },
 
+    // ── Log formatting ────────────────────────────────────────
+    logIcon(entry) {
+      if (entry.type === 'round_start') return '─';
+      const lbl = entry.action_label ?? '';
+      if (lbl.startsWith('Mise'))    return '⬆️';
+      if (lbl === 'Menteur !')       return '🚨';
+      if (lbl === 'Exact !')         return '🎯';
+      return '•';
+    },
+    logNameColor(entry) {
+      return entry.player_id === this.myPlayerId ? 'text-blue-400' : 'text-slate-400';
+    },
+    logTextColor(entry) {
+      const lbl = entry.action_label ?? '';
+      if (lbl.startsWith('Mise'))  return 'text-slate-300';
+      if (lbl === 'Menteur !')     return 'text-red-400';
+      if (lbl === 'Exact !')       return 'text-orange-400';
+      return 'text-slate-500';
+    },
+
     scrollLog() {
       const el = document.getElementById('game-log');
       if (el) el.scrollTop = el.scrollHeight;
     },
-
     formatDeadline() {
-      if (!this.pauseDeadline) return '';
-      return new Date(this.pauseDeadline).toLocaleTimeString();
+      return this.pauseDeadline ? new Date(this.pauseDeadline).toLocaleTimeString() : '';
     },
 
-    // ── Round result helpers ──
+    // ── Round result helpers ───────────────────────────────────
     roundEmoji() {
       if (!this.roundResult) return '';
       const { loser_id, gainer_id } = this.roundResult;
       if (gainer_id === this.myPlayerId) return '🎉';
-      if (loser_id === this.myPlayerId) return '😬';
+      if (loser_id  === this.myPlayerId) return '😬';
       if (gainer_id != null) return '😮';
-      if (loser_id == null) return '😐';
+      if (loser_id  == null) return '😐';
       return '😅';
     },
     roundTitle() {

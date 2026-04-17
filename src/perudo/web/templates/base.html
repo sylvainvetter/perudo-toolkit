@@ -44,16 +44,12 @@
   <nav class="bg-slate-800 border-b border-slate-700 sticky top-0 z-50">
     <div class="max-w-4xl mx-auto px-4 flex items-center justify-between h-14">
       <a href="/" class="flex items-center gap-2 font-bold text-brand text-lg tracking-wide">
-        🎲 Perudo Toolkit
+        🎲 Perudo
       </a>
       <div class="flex items-center gap-1">
         <a href="/" class="px-3 py-1.5 rounded text-sm font-semibold hover:bg-slate-700 transition
                            {% if active == 'lobby' %}bg-slate-700 text-brand{% else %}text-slate-200{% endif %}">
           🌐 En ligne
-        </a>
-        <a href="/solo" class="px-3 py-1.5 rounded text-sm font-medium hover:bg-slate-700 transition
-                               {% if active == 'play' %}bg-slate-700 text-brand{% else %}text-slate-300{% endif %}">
-          🎮 Solo
         </a>
         <!-- Toolkit dropdown -->
         <div class="relative" x-data="{open:false}" @mouseleave="open=false">
