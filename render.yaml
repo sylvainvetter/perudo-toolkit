@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: perudo
+    runtime: python
+    buildCommand: pip install -e .
+    startCommand: uvicorn perudo.web.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0

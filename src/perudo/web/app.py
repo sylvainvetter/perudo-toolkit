@@ -2,9 +2,17 @@
 FastAPI web application — Perudo Toolkit.
 
 Routes:
-  GET  /          → advisor page
-  GET  /proba     → probability calculator page
-  GET  /sim       → simulation results page
+  GET  /               → lobby (online multiplayer landing)
+  GET  /solo           → solo game (human vs bots)
+  GET  /toolkit        → advisor page (toolkit landing)
+  GET  /proba          → probability calculator page
+  GET  /sim            → simulation results page
+  WS   /ws/{room}/{tok}→ WebSocket multiplayer
+
+  POST /api/room/create → create multiplayer room
+  POST /api/room/join   → join existing room
+  POST /api/game/start  → start solo game, return initial state
+  POST /api/game/action → process one solo action + bot responses
   POST /api/recommend   → recommendation JSON
   POST /api/stats       → bid probability stats JSON
 """
@@ -15,7 +23,7 @@ from pathlib import Path
 from typing import Annotated
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -25,6 +33,7 @@ from perudo.m1 import bid_stats
 from perudo.m2 import recommend
 from perudo.m3 import Honest, RandomLegal, ThresholdBot, run_simulation
 from perudo.m3.strategies import Strategy
+from perudo.m4 import CFRBot, Policy
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -34,6 +43,28 @@ app = FastAPI(title="Perudo Toolkit", docs_url="/api/docs")
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+# ---------------------------------------------------------------------------
+# CFR policy cache  (loaded once at startup from models/cfr_Np.pkl)
+# ---------------------------------------------------------------------------
+
+_MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
+_cfr_policies: dict[int, Policy] = {}
+
+
+def _load_cfr_policies() -> None:
+    for n in range(2, 7):
+        path = _MODELS_DIR / f"cfr_{n}p.pkl"
+        if path.exists():
+            try:
+                _cfr_policies[n] = Policy.load(path)
+                n_states = _cfr_policies[n].n_states
+                print(f"[CFR] modele charge : {path.name}  ({n_states:,} etats)")
+            except Exception as exc:
+                print(f"[CFR] echec chargement {path.name}: {exc}")
+
+
+_load_cfr_policies()
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +102,11 @@ class StatsRequest(BaseModel):
 
 
 @app.get("/", response_class=HTMLResponse)
+async def page_lobby(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "lobby.html")
+
+
+@app.get("/toolkit", response_class=HTMLResponse)
 async def page_advisor(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "advisor.html")
 
@@ -83,6 +119,17 @@ async def page_proba(request: Request) -> HTMLResponse:
 @app.get("/sim", response_class=HTMLResponse)
 async def page_sim(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "sim.html")
+
+
+@app.get("/solo", response_class=HTMLResponse)
+@app.get("/play", response_class=HTMLResponse)   # keep old URL working
+async def page_play(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "play.html")
+
+
+@app.get("/room/{room_code}", response_class=HTMLResponse)
+async def page_room(request: Request, room_code: str) -> HTMLResponse:
+    return templates.TemplateResponse(request, "room.html", {"room_code": room_code.upper()})
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +222,81 @@ async def api_stats(req: StatsRequest) -> dict:  # type: ignore[type-arg]
     }
 
 
+class RoomCreateRequest(BaseModel):
+    pseudo: Annotated[str, Field(min_length=1, max_length=20)]
+    n_seats: Annotated[int, Field(ge=2, le=6)] = 4
+
+
+class RoomJoinRequest(BaseModel):
+    room_code: Annotated[str, Field(min_length=4, max_length=8)]
+    pseudo: Annotated[str, Field(min_length=1, max_length=20)]
+
+
+@app.post("/api/room/create")
+async def api_room_create(req: RoomCreateRequest) -> dict:  # type: ignore[type-arg]
+    from perudo.web.multiplayer.room_manager import room_manager as rm
+
+    room, slot = await rm.create_room(req.pseudo, req.n_seats)
+    return {
+        "room_code": room.code,
+        "player_token": slot.token,
+        "player_id": slot.player_id,
+    }
+
+
+@app.post("/api/room/join")
+async def api_room_join(req: RoomJoinRequest) -> dict:  # type: ignore[type-arg]
+    from fastapi import HTTPException
+    from perudo.web.multiplayer.room_manager import room_manager as rm
+
+    result = await rm.join_room(req.room_code, req.pseudo)
+    if isinstance(result, str):
+        raise HTTPException(status_code=400, detail=result)
+    room, slot = result
+    return {
+        "room_code": room.code,
+        "player_token": slot.token,
+        "player_id": slot.player_id,
+    }
+
+
+@app.websocket("/ws/{room_code}/{token}")
+async def ws_multiplayer(websocket: WebSocket, room_code: str, token: str) -> None:
+    from perudo.web.multiplayer.ws_handler import handle_ws
+
+    await handle_ws(websocket, room_code, token, _cfr_policies)
+
+
+class GameStartRequest(BaseModel):
+    n_bots: Annotated[int, Field(ge=1, le=5)]
+    bot_types: Annotated[list[str], Field(min_length=1, max_length=5)]
+    rng_seed: int | None = None
+
+
+class GameActionRequest(BaseModel):
+    state: dict
+    action: dict
+
+
+@app.post("/api/game/start")
+async def api_game_start(req: GameStartRequest) -> dict:  # type: ignore[type-arg]
+    from perudo.web.game_engine import start_game
+
+    if len(req.bot_types) != req.n_bots:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="bot_types length must match n_bots")
+
+    state = start_game(req.n_bots, req.bot_types, req.rng_seed)
+    return {"state": state, "log": []}
+
+
+@app.post("/api/game/action")
+async def api_game_action(req: GameActionRequest) -> dict:  # type: ignore[type-arg]
+    from perudo.web.game_engine import process_action
+
+    return process_action(req.state, req.action, _cfr_policies)
+
+
 class SimulateRequest(BaseModel):
     strategies: Annotated[list[str], Field(min_length=2, max_length=6)]
     n_games: Annotated[int, Field(ge=10, le=2000)] = 500
@@ -193,16 +315,43 @@ _STRATEGY_NAMES: dict[str, str] = {
 }
 
 
+@app.get("/api/cfr_models")
+async def api_cfr_models() -> dict:  # type: ignore[type-arg]
+    """Return which player counts have a loaded CFR model."""
+    return {
+        "available": sorted(_cfr_policies.keys()),
+        "models": {
+            str(n): {"n_states": p.n_states, "n_iters": p.n_iters}
+            for n, p in _cfr_policies.items()
+        },
+    }
+
+
 @app.post("/api/simulate")
 async def api_simulate(req: SimulateRequest) -> dict:  # type: ignore[type-arg]
+    from fastapi import HTTPException
+
+    n_players = len(req.strategies)
     strategies: list[Strategy] = []
     for key in req.strategies:
-        cls = _STRATEGY_MAP.get(key)
-        if cls is None:
-            from fastapi import HTTPException
-
-            raise HTTPException(status_code=422, detail=f"Unknown strategy: {key}")
-        strategies.append(cls())
+        if key == "cfr":
+            policy = _cfr_policies.get(n_players)
+            if policy is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Pas de modele CFR pour {n_players} joueurs. "
+                        f"Lancez : python scripts/train_cfr.py --players {n_players}"
+                    ),
+                )
+            strategies.append(CFRBot(policy))
+        else:
+            cls = _STRATEGY_MAP.get(key)
+            if cls is None:
+                raise HTTPException(
+                    status_code=422, detail=f"Strategie inconnue: {key}"
+                )
+            strategies.append(cls())
 
     names = " vs ".join(s.name for s in strategies)
     print(f"\n[Simulation] {req.n_games} parties — {names}")

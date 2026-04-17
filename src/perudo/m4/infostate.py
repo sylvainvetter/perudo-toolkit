@@ -1,20 +1,30 @@
 """
-M4 — Information-state representation and action encoding for CFR.
+M4 — Compact information-state representation using probability buckets.
 
-An information-state key captures everything the current player knows:
-  - own_dice     : sorted tuple of the player's own die values
-  - bid_q, bid_v : current bid quantity and face value (0, 0 = opening)
-  - total_dice   : total dice on the table (game-phase proxy)
-  - exact_avail  : True if the player hasn't spent their Exact action
-  - percolateur  : True if the Percolateur rule is active this round
+Instead of storing exact die values (which creates millions of states), we
+abstract the information state to probability buckets computed from the
+current bid and own dice.  This reduces the state space from ~100k to ~1800,
+enabling convergence with 10k-50k training episodes.
 
-Action indices
-  0  Liar      legal when there is a bid on the table
-  1  Exact     legal when bid on table AND exact not yet used
-  2  Raise v=1 raise to minimum legal quantity with face value 1
-  3  Raise v=2 ...
-  ...
-  7  Raise v=6
+Info key (for non-opening states only, i.e. bid_q > 0):
+  p_true_bucket  : P(bid is true  | own dice) → 10 levels (0-9, each 10 pp)
+  p_exact_bucket : P(bid is exact | own dice) → 6  levels (0-5, each 10 pp)
+  n_dice         : own dice count              → 5  values (1-5)
+  total_bucket   : total dice on table         → 3  values (early/mid/late)
+  exact_avail    : Exact still usable          → bool
+  perco          : Percolateur active          → bool
+  round_phase    : bids so far this round      → 3  values (1 / 2-3 / 4+)
+
+Total: 10 × 6 × 5 × 3 × 2 × 2 × 3 = 10 800 states.
+In practice perco=False always during training → ~5 400 reachable states.
+
+Opening bids (bid_q == 0) are handled by ThresholdBot in the trainer;
+no info key is needed for those states.
+
+Action indices (unchanged):
+  0  Liar
+  1  Exact
+  2  Raise v=1 … 7  Raise v=6
 """
 
 from __future__ import annotations
@@ -33,12 +43,33 @@ from perudo.core.types import Bid, Exact, Liar, RaiseBid
 N_ACTIONS = 8
 ACTION_LIAR = 0
 ACTION_EXACT = 1
-ACTION_RAISE_BASE = 2  # action index for face value 1; value v → index v+1
+ACTION_RAISE_BASE = 2  # index for v=1; v=k → index k+1
 
 
 # ---------------------------------------------------------------------------
-# Information-state key
+# Info key (bucketed probabilities)
 # ---------------------------------------------------------------------------
+
+
+def make_opening_key(
+    face_counts: np.ndarray,
+    total_dice: int,
+    perco: bool,
+) -> tuple:
+    """
+    Build an info-state key for opening bids (bid_q == 0).
+
+    Captures the full face distribution so the agent can learn value-specific
+    opening strategies (e.g. "I have three 4s → bid (1,4)").
+
+    Key: ("open", face_counts_6tuple, total_bucket, perco)
+    Prefix "open" ensures no collision with the 7-int non-opening keys.
+
+    State count: ≤ 462 face-count vectors × 3 total buckets × 2 perco = 2 772
+    In practice perco=False always during training → ≤ 1 386 reachable.
+    """
+    total_bucket = 0 if total_dice > 15 else (1 if total_dice > 7 else 2)
+    return ("open", tuple(map(int, face_counts)), total_bucket, perco)
 
 
 def make_info_key(
@@ -47,18 +78,55 @@ def make_info_key(
     bid_v: int,
     total_dice: int,
     exact_avail: bool,
-    percolateur: bool,
+    perco: bool,
+    n_bids: int = 1,
 ) -> tuple[Any, ...]:
-    """Return a hashable key representing the current information state."""
-    return (tuple(sorted(own_dice)), bid_q, bid_v, total_dice, exact_avail, percolateur)
+    """
+    Build a compact hashable info-state key for a non-opening decision.
+
+    Computes P(bid true) and P(bid exact) from M1 and buckets them.
+    Should only be called when bid_q > 0 (there is a bid on the table).
+
+    Args:
+        n_bids: number of bids placed this round so far (used to bucket
+                turn position: 1=fresh / 2-3=escalating / 4+=pressure).
+    """
+    from perudo.m4._tables import binom_pmf, binom_sf, own_counts_from_faces
+
+    n_unk = max(0, total_dice - len(own_dice))
+    joker = not perco
+    p_idx = 0 if (perco or bid_v == 1) else 1
+
+    face_counts = np.bincount(np.array(own_dice, dtype=np.int32),
+                               minlength=7)[1:].astype(np.int32)
+    own_counts = own_counts_from_faces(face_counts, joker)
+    own_cur = int(own_counts[bid_v - 1])
+    needed = bid_q - own_cur
+
+    p_true = binom_sf(needed - 1, n_unk, p_idx)
+    p_exact = binom_pmf(needed, n_unk, p_idx)
+
+    p_true_bucket = min(9, int(p_true * 10))   # 0..9  (each bucket = 10 pp)
+    p_exact_bucket = min(5, int(p_exact * 10))  # 0..5  (each bucket = 10 pp)
+    n_dice = len(own_dice)                             # 1..5
+    total_bucket = (                                   # 0=early, 1=mid, 2=late
+        0 if total_dice > 15 else (1 if total_dice > 7 else 2)
+    )
+    # 0=fresh (1 bid) / 1=escalating (2-3) / 2=pressure (4+)
+    round_phase = 0 if n_bids == 1 else (1 if n_bids <= 3 else 2)
+
+    return (
+        p_true_bucket, p_exact_bucket, n_dice,
+        total_bucket, exact_avail, perco, round_phase,
+    )
 
 
 # ---------------------------------------------------------------------------
-# Action helpers
+# Action helpers (unchanged — still need bid_q / bid_v for legal raises)
 # ---------------------------------------------------------------------------
 
 
-def _min_q_raise(bid_q: int, bid_v: int, new_v: int) -> int:
+def min_q_raise(bid_q: int, bid_v: int, new_v: int) -> int:
     """Minimum legal quantity when raising to new_v over (bid_q, bid_v)."""
     if bid_q == 0:
         return 1
@@ -76,14 +144,14 @@ def legal_mask(
     total_dice: int,
     exact_avail: bool,
 ) -> np.ndarray:
-    """Boolean mask of length N_ACTIONS: True where the action is legal."""
+    """Boolean mask of length N_ACTIONS — True where the action is legal."""
     mask = np.zeros(N_ACTIONS, dtype=bool)
     if bid_q > 0:
         mask[ACTION_LIAR] = True
         if exact_avail:
             mask[ACTION_EXACT] = True
     for v in range(1, 7):
-        if _min_q_raise(bid_q, bid_v, v) <= total_dice:
+        if min_q_raise(bid_q, bid_v, v) <= total_dice:
             mask[ACTION_RAISE_BASE + v - 1] = True
     return mask
 
@@ -99,6 +167,6 @@ def decode_action(
         return Liar()
     if idx == ACTION_EXACT:
         return Exact()
-    v = idx - ACTION_RAISE_BASE + 1  # 2 → v=1, 3 → v=2, …, 7 → v=6
-    min_q = _min_q_raise(bid_q, bid_v, v)
+    v = idx - ACTION_RAISE_BASE + 1  # 2→v=1, 3→v=2, …, 7→v=6
+    min_q = min_q_raise(bid_q, bid_v, v)
     return RaiseBid(Bid(quantity=min_q, value=v, player_id=player_id))

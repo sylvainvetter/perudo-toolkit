@@ -46,19 +46,36 @@
       <a href="/" class="flex items-center gap-2 font-bold text-brand text-lg tracking-wide">
         🎲 Perudo Toolkit
       </a>
-      <div class="flex gap-1">
-        <a href="/"     class="px-3 py-1.5 rounded text-sm font-medium hover:bg-slate-700 transition
-                               {% if active == 'advisor' %}bg-slate-700 text-brand{% else %}text-slate-300{% endif %}">
-          Conseiller
+      <div class="flex items-center gap-1">
+        <a href="/" class="px-3 py-1.5 rounded text-sm font-semibold hover:bg-slate-700 transition
+                           {% if active == 'lobby' %}bg-slate-700 text-brand{% else %}text-slate-200{% endif %}">
+          🌐 En ligne
         </a>
-        <a href="/proba" class="px-3 py-1.5 rounded text-sm font-medium hover:bg-slate-700 transition
-                                {% if active == 'proba' %}bg-slate-700 text-brand{% else %}text-slate-300{% endif %}">
-          Probabilités
+        <a href="/solo" class="px-3 py-1.5 rounded text-sm font-medium hover:bg-slate-700 transition
+                               {% if active == 'play' %}bg-slate-700 text-brand{% else %}text-slate-300{% endif %}">
+          🎮 Solo
         </a>
-        <a href="/sim"  class="px-3 py-1.5 rounded text-sm font-medium hover:bg-slate-700 transition
-                               {% if active == 'sim' %}bg-slate-700 text-brand{% else %}text-slate-300{% endif %}">
-          Simulation
-        </a>
+        <!-- Toolkit dropdown -->
+        <div class="relative" x-data="{open:false}" @mouseleave="open=false">
+          <button @mouseenter="open=true" @click="open=!open"
+            class="px-3 py-1.5 rounded text-sm font-medium hover:bg-slate-700 transition
+                   {% if active in ['advisor','proba','sim'] %}bg-slate-700 text-brand{% else %}text-slate-400{% endif %}
+                   flex items-center gap-1">
+            Toolkit <span class="text-xs opacity-60">▾</span>
+          </button>
+          <div x-show="open" x-cloak
+               class="absolute right-0 mt-1 w-40 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-50 py-1">
+            <a href="/toolkit" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-brand transition">
+              Conseiller
+            </a>
+            <a href="/proba" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-brand transition">
+              Probabilités
+            </a>
+            <a href="/sim" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-brand transition">
+              Simulation
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   </nav>

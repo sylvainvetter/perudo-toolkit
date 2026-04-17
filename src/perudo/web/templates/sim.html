@@ -3,7 +3,7 @@
 {% block title %}Simulation — Perudo Toolkit{% endblock %}
 
 {% block content %}
-<div x-data="sim()" x-cloak>
+<div x-data="sim()" x-cloak x-init="loadCfrModels()">
 
   <h1 class="text-2xl font-bold text-brand mb-1">Simulation Monte Carlo</h1>
   <p class="text-slate-400 text-sm mb-8">Compare les stratégies sur N parties simulées.</p>
@@ -26,6 +26,10 @@
                 <option value="random">RandomLegal — aléatoire</option>
                 <option value="honest">Honest — honnête</option>
                 <option value="threshold">ThresholdBot — recommandeur M2</option>
+                <option value="cfr" :disabled="!cfrAvailable(players.length)">
+                  CFRBot — apprentissage par renforcement
+                  <template x-if="!cfrAvailable(players.length)"> (modèle manquant)</template>
+                </option>
               </select>
               <button @click="removePlayer(i)" x-show="players.length > 2"
                       class="text-slate-600 hover:text-red-400 text-sm shrink-0">✕</button>
@@ -174,14 +178,27 @@
 function sim() {
   return {
     players: [
-      { id: 1, strategy: 'random' },
-      { id: 2, strategy: 'honest' },
+      { id: 1, strategy: 'threshold' },
+      { id: 2, strategy: 'threshold' },
       { id: 3, strategy: 'threshold' },
     ],
     nGames: 500,
     result: null,
     loading: false,
     error: null,
+    cfrModels: [],   // player counts with a loaded CFR model
+
+    async loadCfrModels() {
+      try {
+        const r = await fetch('/api/cfr_models');
+        const data = await r.json();
+        this.cfrModels = data.available;
+      } catch (_) { /* ignore — CFR simply unavailable */ }
+    },
+
+    cfrAvailable(nPlayers) {
+      return this.cfrModels.includes(nPlayers);
+    },
 
     addPlayer() {
       if (this.players.length < 6) {
@@ -208,7 +225,10 @@ function sim() {
             n_games: parseInt(this.nGames),
           }),
         });
-        if (!resp.ok) throw new Error('Erreur serveur');
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          throw new Error(body.detail || 'Erreur serveur');
+        }
         this.result = await resp.json();
       } catch (e) {
         this.error = e.message;

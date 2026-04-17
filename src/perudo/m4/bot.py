@@ -21,7 +21,12 @@ import numpy as np
 
 from perudo.core.types import Action, GameState
 from perudo.m3.strategies import Strategy, ThresholdBot
-from perudo.m4.infostate import decode_action, legal_mask, make_info_key
+from perudo.m4.infostate import (
+    decode_action,
+    legal_mask,
+    make_info_key,
+    make_opening_key,
+)
 from perudo.m4.policy import Policy
 
 
@@ -45,19 +50,29 @@ class CFRBot(Strategy):
         player = next(p for p in game_state.players if p.id == pid)
         prev = game_state.round.current_bid
         total = sum(p.dice_count for p in game_state.players)
+        perco = game_state.round.percolateur
 
         bid_q = prev.quantity if prev else 0
         bid_v = prev.value if prev else 0
 
-        info_key = make_info_key(
-            player.dice,
-            bid_q,
-            bid_v,
-            total,
-            not player.exact_used,
-            game_state.round.percolateur,
-        )
-        mask = legal_mask(bid_q, bid_v, total, not player.exact_used)
+        if bid_q == 0:
+            # Opening bid: use learned opening policy
+            face_counts = np.bincount(
+                np.array(player.dice, dtype=np.int32), minlength=7
+            )[1:].astype(np.int32)
+            info_key = make_opening_key(face_counts, total, perco)
+            mask = legal_mask(0, 0, total, exact_avail=False)
+        else:
+            info_key = make_info_key(
+                player.dice,
+                bid_q,
+                bid_v,
+                total,
+                not player.exact_used,
+                perco,
+                n_bids=len(game_state.round.bids),
+            )
+            mask = legal_mask(bid_q, bid_v, total, not player.exact_used)
 
         if self._policy.knows(info_key):
             probs = self._policy.get_probs(info_key, mask)

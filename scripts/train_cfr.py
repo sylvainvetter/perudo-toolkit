@@ -21,8 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from perudo.m3 import ThresholdBot, run_simulation
 from perudo.m4 import CFRBot, CFRTrainer, Policy
+from perudo.m4.cfr import fast_eval
 
 
 def evaluate(
@@ -31,13 +31,10 @@ def evaluate(
     n_games: int = 2000,
     seed: int = 999,
 ) -> tuple[float, float, float, float]:
-    """Run CFRBot vs ThresholdBot and return (win_rate, ci_lo, ci_hi, fallback_rate)."""
+    """Run CFRBot vs fast ThresholdBot — no GameState overhead."""
+    wr, lo, hi = fast_eval(policy, n_players, n_games, seed=seed)
     bot = CFRBot(policy)
-    opponents = [ThresholdBot() for _ in range(n_players - 1)]
-    results = run_simulation(n_games, [bot] + opponents, seed=seed)
-    s = results.strategy_stats[0]
-    lo, hi = s.wilson_ci()
-    return s.win_rate, lo, hi, bot.fallback_rate
+    return wr, lo, hi, bot.fallback_rate
 
 
 def main() -> None:
@@ -66,24 +63,31 @@ def main() -> None:
         "--eval-games", type=int, default=2000,
         help="Games per evaluation run (default: 2 000)",
     )
+    parser.add_argument(
+        "--selfplay-every", type=int, default=20_000,
+        help="Freeze opponent every N total iters for self-play (0=disabled, default: 20 000)",
+    )
     args = parser.parse_args()
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
     print("=" * 62)
-    print("  CFR Self-Play Training — Perudo")
+    print("  CFR+ Self-Play Training - Perudo")
     print("=" * 62)
+    sp_label = f"tous les {args.selfplay_every:,} iters" if args.selfplay_every > 0 else "désactivé"
+    print(f"  Algorithme   : CFR+ (regrets clampés, poids linéaire, reward/manche)")
+    print(f"  Self-play    : {sp_label}")
     print(f"  Joueurs      : {args.players}")
-    print(f"  Itérations   : {args.iters:,}")
+    print(f"  Iterations   : {args.iters:,}")
     print(f"  Eval tous les: {args.eval_every:,} iters ({args.eval_games} parties)")
     print(f"  Sortie       : {out}/")
     print("=" * 62)
 
     for n_players in args.players:
-        print(f"\n{'─' * 62}")
-        print(f"  {n_players} joueurs — démarrage")
-        print(f"{'─' * 62}\n")
+        print(f"\n{'-' * 62}")
+        print(f"  {n_players} joueurs -- demarrage")
+        print(f"{'-' * 62}\n")
 
         trainer = CFRTrainer()
         best_win_rate = 0.0
@@ -99,38 +103,49 @@ def main() -> None:
                 n,
                 n_players,
                 seed=args.seed + chunk_idx * 7,
+                selfplay_every=args.selfplay_every,
                 verbose=True,
             )
             done += n
             chunk_idx += 1
 
             policy = trainer.to_policy()
+            eval_start = time.perf_counter()
+            ts = time.strftime("%H:%M:%S")
+            print(
+                f"  [{ts}] [eval] {args.eval_games} parties... "
+                f"(iter={trainer.n_iters:,}  states={policy.n_states:,})",
+                end="\r",
+                flush=True,
+            )
             wr, lo, hi, fb = evaluate(
                 policy, n_players, n_games=args.eval_games, seed=args.seed + 999
             )
             elapsed = time.perf_counter() - t0
+            eval_dur = time.perf_counter() - eval_start
             marker = ""
             if wr > best_win_rate:
                 best_win_rate = wr
                 best_policy = policy
-                marker = "  ← meilleur"
+                marker = "  <- BEST"
 
+            ts = time.strftime("%H:%M:%S")
             print(
-                f"  iter={trainer.n_iters:>7,}  states={policy.n_states:>7,}  "
+                f"  [{ts}] iter={trainer.n_iters:>7,}  states={policy.n_states:>5,}  "
                 f"win={wr:.1%} [{lo:.1%},{hi:.1%}]  "
-                f"fallback={fb:.1%}  t={elapsed:.0f}s{marker}"
+                f"fallback={fb:.1%}  t={elapsed:.0f}s  eval={eval_dur:.0f}s{marker}"
             )
 
         # Save best policy
         assert best_policy is not None
         path = out / f"cfr_{n_players}p.pkl"
         best_policy.save(path)
-        print(f"\n  Modèle sauvegardé : {path}")
+        print(f"\n  Modele sauvegarde : {path}")
         print(f"  Info-states : {best_policy.n_states:,}")
         print(f"  Win rate final vs ThresholdBot : {best_win_rate:.1%}")
 
     print("\n" + "=" * 62)
-    print("  Entraînement terminé.")
+    print("  Entrainement termine.")
     print("  Lancez le serveur et ouvrez /sim pour tester CFRBot.")
     print("=" * 62 + "\n")
 

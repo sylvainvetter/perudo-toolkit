@@ -1,0 +1,585 @@
+{% extends "base.html" %}
+{% block title %}Jouer — Perudo Toolkit{% endblock %}
+{% set active = 'play' %}
+
+{% block content %}
+<style>
+  .game-die {
+    width: 2.75rem; height: 2.75rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 0.5rem;
+    border: 2px solid #475569;
+    font-size: 1.35rem; font-weight: 800;
+    background: #1e293b;
+    color: #e2e8f0;
+    user-select: none;
+  }
+  .game-die.face-1 { border-color: #f59e0b; color: #fbbf24; background: #1c1408; }
+  .game-die.face-2, .game-die.face-3, .game-die.face-4,
+  .game-die.face-5, .game-die.face-6 { border-color: #475569; color: #cbd5e1; }
+
+  .val-btn {
+    width: 2.5rem; height: 2.5rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 0.4rem; border: 2px solid #475569;
+    font-size: 1.1rem; font-weight: 700; cursor: pointer; transition: all 0.1s;
+    background: #1e293b; color: #94a3b8;
+  }
+  .val-btn:hover { border-color: #f59e0b; color: #fbbf24; transform: scale(1.08); }
+  .val-btn.selected { border-color: #f59e0b; color: #fbbf24; background: #1c1408; }
+  .val-btn.v1 { border-color: #92400e; color: #fbbf24; }
+  .val-btn.v1.selected { border-color: #f59e0b; background: #1c1408; }
+
+  .log-raise { color: #93c5fd; }
+  .log-liar  { color: #f87171; }
+  .log-exact { color: #fb923c; }
+  .log-round { color: #94a3b8; font-style: italic; }
+  .log-result{ color: #4ade80; }
+
+  .btn-primary {
+    padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-weight: 600;
+    background: #d97706; color: #fff; transition: background 0.15s;
+  }
+  .btn-primary:hover { background: #b45309; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-liar {
+    padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-weight: 600;
+    background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626;
+    transition: background 0.15s;
+  }
+  .btn-liar:hover { background: #991b1b; }
+  .btn-liar:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-exact {
+    padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-weight: 600;
+    background: #431407; color: #fdba74; border: 1px solid #ea580c;
+    transition: background 0.15s;
+  }
+  .btn-exact:hover { background: #7c2d12; }
+  .btn-exact:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .bid-display {
+    font-size: 2.5rem; font-weight: 900; letter-spacing: 0.05em;
+    color: #f59e0b; line-height: 1;
+  }
+  .bid-value-box {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 3rem; height: 3rem;
+    border-radius: 0.5rem; border: 3px solid #f59e0b;
+    font-size: 1.6rem; font-weight: 900;
+    background: #1c1408; color: #fbbf24;
+    vertical-align: middle;
+  }
+
+  .player-card {
+    padding: 0.5rem 0.75rem; border-radius: 0.5rem;
+    border: 1px solid #334155; background: #1e293b;
+    min-width: 5.5rem; text-align: center;
+  }
+  .player-card.active-player { border-color: #f59e0b; }
+  .player-card.eliminated { opacity: 0.35; }
+  .player-card.is-human { border-color: #3b82f6; }
+</style>
+
+<div x-data="perudoGame()" x-init="init()">
+
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <!--  SETUP SCREEN                                                     -->
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <template x-if="phase === 'setup'">
+    <div class="max-w-md mx-auto">
+      <div class="bg-slate-800 rounded-xl border border-slate-700 p-6 space-y-6">
+        <h1 class="text-2xl font-bold text-brand text-center">🎲 Nouvelle partie</h1>
+
+        <!-- Nombre de bots -->
+        <div class="space-y-2">
+          <label class="block text-sm font-medium text-slate-300">Nombre de bots</label>
+          <div class="flex gap-2">
+            <template x-for="n in [1,2,3,4,5]" :key="n">
+              <button
+                @click="setNBots(n)"
+                :class="nBots === n
+                  ? 'w-10 h-10 rounded-lg font-bold border-2 border-brand bg-amber-900/40 text-brand'
+                  : 'w-10 h-10 rounded-lg font-bold border-2 border-slate-600 bg-slate-700 text-slate-300 hover:border-brand/50'"
+                x-text="n">
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <!-- Type de chaque bot -->
+        <div class="space-y-2">
+          <label class="block text-sm font-medium text-slate-300">Type de bot</label>
+          <template x-for="(bt, i) in botTypes" :key="i">
+            <div class="flex items-center gap-3">
+              <span class="text-slate-400 text-sm w-12" x-text="`Bot ${i+1}`"></span>
+              <div class="flex gap-2">
+                <button
+                  @click="botTypes[i] = 'threshold'"
+                  :class="bt === 'threshold'
+                    ? 'px-3 py-1 rounded text-sm border-2 border-brand bg-amber-900/30 text-brand font-medium'
+                    : 'px-3 py-1 rounded text-sm border border-slate-600 text-slate-400 hover:border-slate-500'">
+                  Threshold
+                </button>
+                <button
+                  @click="botTypes[i] = 'cfr'"
+                  :class="bt === 'cfr'
+                    ? 'px-3 py-1 rounded text-sm border-2 border-emerald-500 bg-emerald-900/30 text-emerald-400 font-medium'
+                    : 'px-3 py-1 rounded text-sm border border-slate-600 text-slate-400 hover:border-slate-500'">
+                  CFR
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Perco -->
+        <div class="flex items-center gap-3">
+          <input type="checkbox" id="perco" x-model="perco"
+            class="w-4 h-4 accent-amber-500" />
+          <label for="perco" class="text-sm text-slate-300 cursor-pointer">
+            Percolateur (1 = joker)
+          </label>
+        </div>
+
+        <button @click="startGame()" class="btn-primary w-full text-base py-3">
+          Commencer ▶
+        </button>
+      </div>
+    </div>
+  </template>
+
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <!--  GAME SCREEN                                                      -->
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <template x-if="phase !== 'setup'">
+    <div class="space-y-4">
+
+      <!-- ── Top bar : round + player status ─────────────────────────── -->
+      <div class="flex items-start gap-3 flex-wrap">
+        <div class="text-slate-500 text-xs font-mono pt-2 mr-1"
+             x-text="`Manche ${state?.round_num ?? 1}`"></div>
+        <template x-for="p in (state?.players ?? [])" :key="p.id">
+          <div
+            :class="{
+              'player-card': true,
+              'is-human': p.id === 0,
+              'active-player': state?.current_player === p.id,
+              'eliminated': !isActive(p.id)
+            }">
+            <div class="text-xs font-semibold mb-1"
+                 :class="p.id === 0 ? 'text-blue-400' : 'text-slate-400'"
+                 x-text="p.id === 0 ? 'Vous' : `Bot ${p.id}`">
+            </div>
+            <div class="flex justify-center gap-0.5 flex-wrap">
+              <template x-for="i in p.n_dice" :key="i">
+                <span class="text-base" :class="p.id === 0 ? 'text-blue-400' : 'text-slate-500'">🎲</span>
+              </template>
+              <template x-if="p.n_dice === 0">
+                <span class="text-xs text-slate-600">éliminé</span>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ── Main area ──────────────────────────────────────────────── -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        <!-- Left: My dice + Actions -->
+        <div class="space-y-4">
+
+          <!-- My dice -->
+          <div class="bg-slate-800 rounded-xl border border-blue-900/60 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-3">Mes dés</div>
+            <div class="flex gap-2 flex-wrap">
+              <template x-for="(v, i) in (state?.players?.[0]?.dice ?? [])" :key="i">
+                <div :class="`game-die face-${v}`" x-text="v"></div>
+              </template>
+              <template x-if="!state?.players?.[0]?.dice?.length">
+                <span class="text-slate-600 text-sm italic">Éliminé</span>
+              </template>
+            </div>
+          </div>
+
+          <!-- Action zone -->
+          <div class="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wide">Actions</div>
+
+            <!-- Raise form -->
+            <div class="space-y-3">
+              <div class="flex items-center gap-4">
+                <!-- Quantity picker -->
+                <div class="flex items-center gap-2">
+                  <button @click="bidQty = Math.max(minQtyForVal(bidVal), bidQty - 1)"
+                    class="w-8 h-8 rounded bg-slate-700 border border-slate-600 text-slate-300 font-bold hover:bg-slate-600 flex items-center justify-center text-lg leading-none">−</button>
+                  <span class="w-8 text-center font-bold text-xl text-slate-100" x-text="bidQty"></span>
+                  <button @click="bidQty++"
+                    class="w-8 h-8 rounded bg-slate-700 border border-slate-600 text-slate-300 font-bold hover:bg-slate-600 flex items-center justify-center text-lg leading-none">+</button>
+                </div>
+                <span class="text-slate-500">×</span>
+                <!-- Value picker -->
+                <div class="flex gap-1">
+                  <template x-for="v in [1,2,3,4,5,6]" :key="v">
+                    <button
+                      @click="setVal(v)"
+                      :class="valBtnClass(v)"
+                      x-text="v">
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <button
+                @click="submitAction('raise')"
+                :disabled="phase === 'waiting' || phase === 'round_end' || phase === 'game_over' || !isBidLegal()"
+                class="btn-primary w-full">
+                Miser
+              </button>
+            </div>
+
+            <!-- Liar / Exact -->
+            <div class="flex gap-2">
+              <button
+                @click="submitAction('liar')"
+                :disabled="phase === 'waiting' || phase === 'round_end' || phase === 'game_over' || !canLiar()"
+                class="btn-liar flex-1">
+                Menteur !
+              </button>
+              <button
+                @click="submitAction('exact')"
+                :disabled="phase === 'waiting' || phase === 'round_end' || phase === 'game_over' || !canExact()"
+                class="btn-exact flex-1">
+                Exact !
+              </button>
+            </div>
+
+            <!-- Waiting spinner -->
+            <template x-if="phase === 'waiting'">
+              <div class="text-center text-slate-500 text-sm animate-pulse py-1">
+                Les bots réfléchissent…
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Right: Current bid + Log -->
+        <div class="space-y-4">
+
+          <!-- Current bid -->
+          <div class="bg-slate-800 rounded-xl border border-slate-700 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-2">Enchère courante</div>
+            <template x-if="lastBid()">
+              <div class="text-center">
+                <div class="flex items-center justify-center gap-3">
+                  <span class="bid-display" x-text="lastBid().quantity"></span>
+                  <span class="bid-display text-slate-500">×</span>
+                  <span class="bid-value-box" x-text="lastBid().value"></span>
+                </div>
+                <div class="text-slate-500 text-xs mt-2"
+                     x-text="`par ${lastBid().player_id === 0 ? 'vous' : 'Bot ' + lastBid().player_id}`">
+                </div>
+              </div>
+            </template>
+            <template x-if="!lastBid()">
+              <div class="text-center text-slate-600 italic text-sm py-2">Aucune enchère — ouvrez la manche</div>
+            </template>
+          </div>
+
+          <!-- Game log -->
+          <div class="bg-slate-800 rounded-xl border border-slate-700 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-3">Journal</div>
+            <div class="space-y-1 max-h-64 overflow-y-auto text-sm font-mono" id="game-log">
+              <template x-if="log.length === 0">
+                <div class="text-slate-600 italic">La partie commence…</div>
+              </template>
+              <template x-for="(entry, i) in log" :key="i">
+                <div :class="{
+                  'log-raise': entry.type === 'action' && entry.action_label?.startsWith('Mise'),
+                  'log-liar':  entry.type === 'action' && entry.action_label === 'Menteur !',
+                  'log-exact': entry.type === 'action' && entry.action_label === 'Exact !',
+                  'log-round': entry.type === 'round_start',
+                }">
+                  <template x-if="entry.type === 'round_start'">
+                    <div class="border-t border-slate-700 mt-1 pt-1 text-slate-500"
+                         x-text="`── ${entry.action_label} ──`"></div>
+                  </template>
+                  <template x-if="entry.type !== 'round_start'">
+                    <div>
+                      <span class="text-slate-400" x-text="`${entry.player_label} : `"></span>
+                      <span x-text="entry.action_label"></span>
+                      <template x-if="entry.detail">
+                        <span class="text-slate-500 text-xs" x-text="` — ${entry.detail}`"></span>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Round result overlay ─────────────────────────────────── -->
+      <template x-if="phase === 'round_end' && roundResult">
+        <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+             @click.self="continueRound()">
+          <div class="bg-slate-800 border border-slate-600 rounded-2xl p-8 max-w-sm w-full mx-4 text-center space-y-4 shadow-2xl">
+            <div class="text-4xl" x-text="roundResultEmoji()"></div>
+            <div class="text-lg font-bold text-slate-100" x-text="roundResultTitle()"></div>
+            <div class="text-slate-400 text-sm" x-text="roundResultDetail()"></div>
+            <button @click="continueRound()" class="btn-primary w-full mt-2">
+              Continuer →
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── Game over screen ─────────────────────────────────────── -->
+      <template x-if="phase === 'game_over'">
+        <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div class="bg-slate-800 border border-slate-600 rounded-2xl p-8 max-w-sm w-full mx-4 text-center space-y-5 shadow-2xl">
+            <div class="text-5xl" x-text="winner === 0 ? '🏆' : '💀'"></div>
+            <div class="text-2xl font-bold"
+                 :class="winner === 0 ? 'text-brand' : 'text-slate-300'"
+                 x-text="winner === 0 ? 'Victoire !' : `Bot ${winner} gagne`">
+            </div>
+            <div class="text-slate-400 text-sm">
+              Manche <span x-text="state?.round_num ?? ''"></span>
+            </div>
+            <div class="flex gap-3">
+              <button @click="restartSetup()" class="flex-1 px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition text-sm font-medium">
+                Config →
+              </button>
+              <button @click="startGame()" class="btn-primary flex-1">
+                Rejouer ▶
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </template>
+
+  <!-- Error toast -->
+  <template x-if="error">
+    <div class="fixed bottom-4 right-4 bg-red-900 border border-red-600 text-red-200 px-4 py-3 rounded-lg text-sm shadow-lg z-50 flex items-center gap-2">
+      <span>⚠️</span>
+      <span x-text="error"></span>
+      <button @click="error = null" class="ml-2 text-red-400 hover:text-red-200">✕</button>
+    </div>
+  </template>
+
+</div>
+
+<script>
+function perudoGame() {
+  return {
+    phase: 'setup',
+    nBots: 2,
+    botTypes: ['threshold', 'threshold'],
+    perco: false,
+    state: null,
+    log: [],
+    roundResult: null,
+    winner: null,
+    bidQty: 1,
+    bidVal: 2,
+    error: null,
+
+    init() {
+      this.botTypes = Array(this.nBots).fill('threshold');
+    },
+
+    setNBots(n) {
+      this.nBots = n;
+      while (this.botTypes.length < n) this.botTypes.push('threshold');
+      this.botTypes = this.botTypes.slice(0, n);
+    },
+
+    myPlayer() {
+      return this.state?.players?.[0] ?? null;
+    },
+
+    lastBid() {
+      const bids = this.state?.bids ?? [];
+      return bids.length > 0 ? bids[bids.length - 1] : null;
+    },
+
+    isActive(pid) {
+      return (this.state?.active ?? []).includes(pid);
+    },
+
+    canLiar() {
+      return !!this.lastBid();
+    },
+
+    canExact() {
+      return !!this.lastBid() && !this.myPlayer()?.exact_used;
+    },
+
+    // Minimum quantity for a given face value given the last bid
+    minQtyForVal(v) {
+      const last = this.lastBid();
+      if (!last) return 1;
+      const pq = last.quantity, pv = last.value;
+      if (pv === 1) {
+        if (v === 1) return pq + 1;           // Perudo → Perudo
+        return 2 * pq + 1;                    // Perudo → Standard
+      } else {
+        if (v === 1) return Math.ceil(pq / 2) + 1;  // Standard → Perudo
+        if (v > pv)  return pq;               // Standard → Standard (higher face)
+        return pq + 1;                        // Standard → Standard (same/lower face)
+      }
+    },
+
+    setVal(v) {
+      this.bidVal = v;
+      const minQ = this.minQtyForVal(v);
+      if (this.bidQty < minQ) this.bidQty = minQ;
+    },
+
+    isBidLegal() {
+      const last = this.lastBid();
+      if (!last) return true;
+      const q = this.bidQty, v = this.bidVal;
+      const pq = last.quantity, pv = last.value;
+      if (pv === 1) {
+        if (v === 1) return q > pq;
+        return q >= 2 * pq + 1;
+      } else {
+        if (v === 1) return q >= Math.ceil(pq / 2) + 1;
+        return q > pq || (q === pq && v > pv);
+      }
+    },
+
+    async startGame() {
+      this.phase = 'waiting';
+      this.log = [];
+      this.roundResult = null;
+      this.winner = null;
+      this.error = null;
+      try {
+        const resp = await fetch('/api/game/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ n_bots: this.nBots, bot_types: this.botTypes }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        this.state = data.state;
+        this.log = data.log ?? [];
+        this.resetBidForm();
+        this.phase = 'my_turn';
+      } catch (e) {
+        this.error = `Erreur démarrage : ${e.message}`;
+        this.phase = 'setup';
+      }
+    },
+
+    resetBidForm() {
+      const last = this.lastBid();
+      if (!last) {
+        this.bidQty = 1;
+        this.bidVal = 2;
+      } else if (last.value === 1) {
+        // After Perudo: default to Standard 2*(q)+1
+        this.bidVal = 2;
+        this.bidQty = 2 * last.quantity + 1;
+      } else {
+        // After Standard: same face, qty+1
+        this.bidVal = last.value;
+        this.bidQty = last.quantity + 1;
+      }
+    },
+
+    async submitAction(type) {
+      if (this.phase !== 'my_turn') return;
+      this.phase = 'waiting';
+      const action = { type };
+      if (type === 'raise') {
+        action.quantity = this.bidQty;
+        action.value = this.bidVal;
+      }
+      try {
+        const resp = await fetch('/api/game/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: this.state, action }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        this.state = data.state;
+        this.log.push(...(data.log ?? []));
+        this.roundResult = data.round_result;
+        this.$nextTick(() => this.scrollLog());
+
+        if (data.game_over) {
+          this.winner = data.winner;
+          this.phase = 'game_over';
+        } else if (data.round_result) {
+          this.phase = 'round_end';
+        } else {
+          this.resetBidForm();
+          this.phase = 'my_turn';
+        }
+      } catch (e) {
+        this.error = `Erreur action : ${e.message}`;
+        this.phase = 'my_turn';
+      }
+    },
+
+    continueRound() {
+      this.roundResult = null;
+      this.resetBidForm();
+      this.phase = 'my_turn';
+    },
+
+    restartSetup() {
+      this.phase = 'setup';
+      this.state = null;
+      this.log = [];
+      this.roundResult = null;
+      this.winner = null;
+    },
+
+    scrollLog() {
+      const el = document.getElementById('game-log');
+      if (el) el.scrollTop = el.scrollHeight;
+    },
+
+    valBtnClass(v) {
+      const base = 'val-btn' + (v === 1 ? ' v1' : '');
+      return this.bidVal === v ? base + ' selected' : base;
+    },
+
+    roundResultEmoji() {
+      if (!this.roundResult) return '';
+      const { loser_id, gainer_id } = this.roundResult;
+      if (gainer_id === 0) return '🎉';
+      if (loser_id === 0) return '😬';
+      if (loser_id === null) return '😐';
+      return '😅';
+    },
+
+    roundResultTitle() {
+      if (!this.roundResult) return '';
+      const { loser_id, gainer_id, bid_q, bid_v } = this.roundResult;
+      if (gainer_id === 0) return 'Exact ! Vous gagnez 1 dé';
+      if (gainer_id !== null) return `Bot ${gainer_id} fait Exact`;
+      if (loser_id === 0) return 'Vous perdez 1 dé';
+      if (loser_id !== null) return `Bot ${loser_id} perd 1 dé`;
+      return 'Personne ne perd';
+    },
+
+    roundResultDetail() {
+      if (!this.roundResult) return '';
+      const { total, bid_q, bid_v } = this.roundResult;
+      return `Enchère ${bid_q} × ${bid_v} — total réel : ${total}`;
+    },
+  };
+}
+</script>
+{% endblock %}
