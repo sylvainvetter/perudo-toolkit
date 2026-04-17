@@ -34,6 +34,7 @@ from perudo.m2 import recommend
 from perudo.m3 import Honest, RandomLegal, ThresholdBot, run_simulation
 from perudo.m3.strategies import Strategy
 from perudo.m4 import CFRBot, Policy
+from perudo.web.logging_setup import server_logger
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -59,9 +60,9 @@ def _load_cfr_policies() -> None:
             try:
                 _cfr_policies[n] = Policy.load(path)
                 n_states = _cfr_policies[n].n_states
-                print(f"[CFR] modele charge : {path.name}  ({n_states:,} etats)")
+                server_logger.info("[CFR] Loaded %s — %d states", path.name, n_states)
             except Exception as exc:
-                print(f"[CFR] echec chargement {path.name}: {exc}")
+                server_logger.error("[CFR] Failed to load %s: %s", path.name, exc)
 
 
 _load_cfr_policies()
@@ -237,6 +238,7 @@ async def api_room_create(req: RoomCreateRequest) -> dict:  # type: ignore[type-
     from perudo.web.multiplayer.room_manager import room_manager as rm
 
     room, slot = await rm.create_room(req.pseudo, req.n_seats)
+    server_logger.info("[%s] Room created by %s (%d seats)", room.code, req.pseudo, req.n_seats)
     return {
         "room_code": room.code,
         "player_token": slot.token,
@@ -251,8 +253,10 @@ async def api_room_join(req: RoomJoinRequest) -> dict:  # type: ignore[type-arg]
 
     result = await rm.join_room(req.room_code, req.pseudo)
     if isinstance(result, str):
+        server_logger.warning("[%s] Join failed for %s: %s", req.room_code.upper(), req.pseudo, result)
         raise HTTPException(status_code=400, detail=result)
     room, slot = result
+    server_logger.info("[%s] %s joined (slot %d)", room.code, req.pseudo, slot.player_id)
     return {
         "room_code": room.code,
         "player_token": slot.token,

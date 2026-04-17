@@ -42,6 +42,14 @@ from perudo.web.multiplayer.room_manager import (
     PlayerSlot,
     room_manager,
 )
+from perudo.web.logging_setup import log_game_event, server_logger
+
+# ---------------------------------------------------------------------------
+# AFK constants
+# ---------------------------------------------------------------------------
+
+AFK_WARNING_SECS = 90   # warn at 90 s
+AFK_TIMEOUT_SECS = 120  # auto-play at 120 s
 
 
 # ---------------------------------------------------------------------------
@@ -80,28 +88,37 @@ async def handle_ws(
             room.phase = "playing"
             room.pause_deadline = None
             room.paused_player_id = None
+            server_logger.info("[%s] %s reconnected (game resumed)", room.code, slot.pseudo)
+            log_game_event(room.code, {"type": "reconnect", "player_id": slot.player_id, "pseudo": slot.pseudo})
             await _broadcast(room, {
                 "type": "game_resumed",
                 "player_id": slot.player_id,
                 "pseudo": slot.pseudo,
             })
+            pseudos = {s.player_id: s.pseudo for s in room.slots}
             # Re-send current game state to reconnecting player
             await _send(websocket, {
                 "type": "game_start",
                 "state": _filter_state(room.game_state, slot.player_id),
                 "your_player_id": slot.player_id,
+                "pseudos": pseudos,
                 "resumed": True,
             })
+            _reschedule_afk(room, cfr_policies)
         elif room.phase == "playing":
-            # Late-joining spectator reconnect (shouldn't happen normally)
+            server_logger.info("[%s] %s reconnected (game in progress)", room.code, slot.pseudo)
+            pseudos = {s.player_id: s.pseudo for s in room.slots}
+            # Late reconnect — resend state
             await _send(websocket, {
                 "type": "game_start",
                 "state": _filter_state(room.game_state, slot.player_id),
                 "your_player_id": slot.player_id,
+                "pseudos": pseudos,
                 "resumed": True,
             })
         else:
             # Normal lobby join
+            server_logger.info("[%s] %s connected (lobby, %d/%d)", room.code, slot.pseudo, len(room.slots), room.n_seats)
             await _broadcast(room, {
                 "type": "lobby_update",
                 **room.lobby_payload(),
@@ -173,6 +190,22 @@ async def _dispatch(
                     return
                 _init_game(room)
                 room.phase = "playing"
+                pseudos = {s.player_id: s.pseudo for s in room.slots}
+                players_info = [
+                    {"id": s.player_id, "pseudo": s.pseudo, "is_bot": s.is_bot, "bot_type": s.bot_type}
+                    for s in room.slots
+                ]
+                server_logger.info(
+                    "[%s] Game started — %d players: %s",
+                    room.code,
+                    len(room.slots),
+                    ", ".join(s.pseudo for s in room.slots),
+                )
+                log_game_event(room.code, {
+                    "type": "game_start",
+                    "n_players": len(room.slots),
+                    "players": players_info,
+                })
                 # Send personalised state to each human
                 for s in room.human_slots():
                     if s.ws and s.connected:
@@ -180,21 +213,43 @@ async def _dispatch(
                             "type": "game_start",
                             "state": _filter_state(room.game_state, s.player_id),
                             "your_player_id": s.player_id,
+                            "pseudos": pseudos,
                         })
-                # Run bots if first player is a bot
+                # Run bots if first player is a bot, then schedule AFK
                 await _run_bots(room, cfr_policies)
+                _reschedule_afk(room, cfr_policies)
 
         elif room.phase == "playing":
             if t == "action":
                 current = room.game_state.get("current_player", -1)
                 if current != slot.player_id:
                     return  # not your turn
+                # Cancel AFK task — player acted
+                _cancel_afk(room)
                 action = msg.get("action", {})
+                round_num = room.game_state.get("round_num", 1)
                 log, round_result, game_over, winner = _apply_action(
                     room.game_state, slot.player_id, action
                 )
+                _log_action(room.code, round_num, slot.player_id, slot.pseudo, action, round_result)
+                if round_result:
+                    log_game_event(room.code, {
+                        "type": "round_end",
+                        "round": round_num,
+                        "dice_counts": _log_dice_counts(room.game_state),
+                    })
                 if game_over:
                     room.phase = "finished"
+                    server_logger.info(
+                        "[%s] Game over — winner: %s (round %d)",
+                        room.code, _pseudo(room, winner), room.game_state.get("round_num", "?"),
+                    )
+                    log_game_event(room.code, {
+                        "type": "game_over",
+                        "winner_id": winner,
+                        "winner_pseudo": _pseudo(room, winner),
+                        "total_rounds": room.game_state.get("round_num", 0),
+                    })
                     await _broadcast(room, {
                         "type": "game_over",
                         "winner": winner,
@@ -202,12 +257,23 @@ async def _dispatch(
                         "log": log,
                         "round_result": round_result,
                     })
-                elif round_result:
+                else:
                     await _broadcast_game_update(room, log, round_result)
                     await _run_bots(room, cfr_policies)
-                else:
-                    await _broadcast_game_update(room, log, None)
-                    await _run_bots(room, cfr_policies)
+                    _reschedule_afk(room, cfr_policies)
+
+        elif room.phase == "finished":
+            if t == "rematch" and slot.token == room.creator_token:
+                new_room, token_map = await _create_rematch_room(room)
+                for s in room.human_slots():
+                    if s.ws and s.connected:
+                        new_token = token_map.get(s.player_id, "")
+                        if new_token:
+                            await _send(s.ws, {
+                                "type": "rematch",
+                                "room_code": new_room.code,
+                                "your_token": new_token,
+                            })
 
 
 # ---------------------------------------------------------------------------
@@ -392,12 +458,17 @@ async def _run_bots(room: Room, cfr_policies: dict[int, Policy]) -> None:
             current, cfg, rng, bot_policy, len(bids),
         )
 
+        bot_pseudo = _pseudo(room, current)
+        round_num = state.get("round_num", 1)
+
         if isinstance(bot_act, RaiseBid):
             b = bot_act.bid
             bids.append(b)
             state["bids"] = _bids_to_list(bids)
             all_log.append(_log_entry(current, f"Mise : {b.quantity} × {b.value}"))
             state["current_player"] = _next_active(active, current)
+            _log_action(room.code, round_num, current, bot_pseudo,
+                        {"type": "raise", "quantity": b.quantity, "value": b.value})
 
         elif isinstance(bot_act, Liar):
             all_dice2 = [d for pid in active for d in state["players"][pid]["dice"]]
@@ -413,13 +484,21 @@ async def _run_bots(room: Room, cfr_policies: dict[int, Policy]) -> None:
                 "total": result.total_matching,
                 "bid_q": bids[-1].quantity, "bid_v": bids[-1].value,
             }
+            _log_action(room.code, round_num, current, bot_pseudo, {"type": "liar"}, round_result)
             if loser is not None:
                 _apply_die_loss(state, loser)
             state["bids"] = []
             state["active"] = [pid for pid in active if state["players"][pid]["n_dice"] > 0]
+            log_game_event(room.code, {"type": "round_end", "round": round_num,
+                                       "dice_counts": _log_dice_counts(state)})
             game_over, winner = _check_game_over(state["active"])
             if game_over:
                 room.phase = "finished"
+                server_logger.info("[%s] Game over — winner: %s (round %d)",
+                                   room.code, _pseudo(room, winner), round_num)
+                log_game_event(room.code, {"type": "game_over", "winner_id": winner,
+                                           "winner_pseudo": _pseudo(room, winner),
+                                           "total_rounds": round_num})
                 await _broadcast(room, {
                     "type": "game_over",
                     "winner": winner,
@@ -463,11 +542,19 @@ async def _run_bots(room: Room, cfr_policies: dict[int, Policy]) -> None:
                 "total": result.total_matching,
                 "bid_q": bids[-1].quantity, "bid_v": bids[-1].value,
             }
+            _log_action(room.code, round_num, current, bot_pseudo, {"type": "exact"}, round_result)
             state["bids"] = []
             state["active"] = [pid for pid in active if state["players"][pid]["n_dice"] > 0]
+            log_game_event(room.code, {"type": "round_end", "round": round_num,
+                                       "dice_counts": _log_dice_counts(state)})
             game_over, winner = _check_game_over(state["active"])
             if game_over:
                 room.phase = "finished"
+                server_logger.info("[%s] Game over — winner: %s (round %d)",
+                                   room.code, _pseudo(room, winner), round_num)
+                log_game_event(room.code, {"type": "game_over", "winner_id": winner,
+                                           "winner_pseudo": _pseudo(room, winner),
+                                           "total_rounds": round_num})
                 await _broadcast(room, {
                     "type": "game_over",
                     "winner": winner,
@@ -492,6 +579,138 @@ async def _run_bots(room: Room, cfr_policies: dict[int, Policy]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# AFK detection
+# ---------------------------------------------------------------------------
+
+
+def _cancel_afk(room: Room) -> None:
+    """Cancel any running AFK task for this room."""
+    if room.afk_task and not room.afk_task.done():
+        room.afk_task.cancel()
+    room.afk_task = None
+
+
+def _reschedule_afk(room: Room, cfr_policies: dict) -> None:
+    """Start a fresh AFK timer for the current human player (if any)."""
+    _cancel_afk(room)
+    state = room.game_state
+    if state is None or room.phase != "playing":
+        return
+    current = state.get("current_player", -1)
+    human_ids = set(state.get("human_ids", []))
+    if current == -1 or current not in human_ids:
+        return
+    room.afk_task = asyncio.create_task(_afk_check(room, current, cfr_policies))
+
+
+async def _afk_check(room: Room, player_id: int, cfr_policies: dict) -> None:
+    """Background task: warn then auto-play an unresponsive player."""
+    try:
+        await asyncio.sleep(AFK_WARNING_SECS)
+    except asyncio.CancelledError:
+        return
+
+    # Warning phase
+    async with room.lock:
+        if room.phase != "playing":
+            return
+        state = room.game_state
+        if state is None or state.get("current_player") != player_id:
+            return
+        secs_left = AFK_TIMEOUT_SECS - AFK_WARNING_SECS
+        server_logger.info("[%s] AFK warning — %s (%ds left)", room.code, _pseudo(room, player_id), secs_left)
+        log_game_event(room.code, {"type": "afk_warning", "player_id": player_id,
+                                   "pseudo": _pseudo(room, player_id), "seconds_left": secs_left})
+        await _broadcast(room, {
+            "type": "afk_warning",
+            "player_id": player_id,
+            "pseudo": _pseudo(room, player_id),
+            "seconds_left": secs_left,
+        })
+
+    try:
+        await asyncio.sleep(AFK_TIMEOUT_SECS - AFK_WARNING_SECS)
+    except asyncio.CancelledError:
+        return
+
+    # Auto-play phase
+    async with room.lock:
+        if room.phase != "playing":
+            return
+        state = room.game_state
+        if state is None or state.get("current_player") != player_id:
+            return
+
+        bids = state.get("bids", [])
+        action = {"type": "liar"} if bids else {"type": "raise", "quantity": 1, "value": 2}
+
+        pseudo = _pseudo(room, player_id)
+        server_logger.info("[%s] AFK autoplay — %s forced %s", room.code, pseudo, action.get("type"))
+        log_game_event(room.code, {"type": "afk_autoplay", "player_id": player_id,
+                                   "pseudo": pseudo, "forced_action": action.get("type")})
+        await _broadcast(room, {
+            "type": "afk_autoplay",
+            "player_id": player_id,
+            "pseudo": pseudo,
+        })
+
+        round_num = state.get("round_num", 1)
+        log, round_result, game_over, winner = _apply_action(state, player_id, action)
+        _log_action(room.code, round_num, player_id, pseudo, action, round_result)
+        if round_result:
+            log_game_event(room.code, {"type": "round_end", "round": round_num,
+                                       "dice_counts": _log_dice_counts(state)})
+        if game_over:
+            room.phase = "finished"
+            server_logger.info("[%s] Game over (AFK) — winner: %s", room.code, _pseudo(room, winner))
+            log_game_event(room.code, {"type": "game_over", "winner_id": winner,
+                                       "winner_pseudo": _pseudo(room, winner),
+                                       "total_rounds": state.get("round_num", 0)})
+            await _broadcast(room, {
+                "type": "game_over",
+                "winner": winner,
+                "winner_pseudo": _pseudo(room, winner),
+                "log": log,
+                "round_result": round_result,
+            })
+        else:
+            await _broadcast_game_update(room, log, round_result)
+            await _run_bots(room, cfr_policies)
+            _reschedule_afk(room, cfr_policies)
+
+
+# ---------------------------------------------------------------------------
+# Rematch
+# ---------------------------------------------------------------------------
+
+
+async def _create_rematch_room(old_room: Room) -> tuple[Room, dict[int, str]]:
+    """
+    Clone old_room configuration into a fresh lobby.
+    Returns (new_room, {old_player_id: new_token}).
+    """
+    creator_slot = old_room.slot_by_token(old_room.creator_token)
+    creator_pseudo = creator_slot.pseudo if creator_slot else "Créateur"
+
+    new_room, new_creator = await room_manager.create_room(creator_pseudo, old_room.n_seats)
+    token_map: dict[int, str] = {0: new_creator.token}
+
+    for s in sorted(old_room.slots, key=lambda x: x.player_id):
+        if s.token == old_room.creator_token:
+            continue
+        if s.is_bot:
+            async with new_room.lock:
+                room_manager.add_bot(new_room, s.bot_type)
+        else:
+            result = await room_manager.join_room(new_room.code, s.pseudo)
+            if not isinstance(result, str):
+                _, new_slot = result
+                token_map[s.player_id] = new_slot.token
+
+    return new_room, token_map
+
+
+# ---------------------------------------------------------------------------
 # Disconnect / reconnect
 # ---------------------------------------------------------------------------
 
@@ -500,11 +719,19 @@ async def _on_disconnect(room: Room, slot: PlayerSlot, cfr_policies: dict[int, P
     async with room.lock:
         slot.connected = False
         slot.ws = None
+        _cancel_afk(room)
 
+        server_logger.info("[%s] %s disconnected (phase=%s)", room.code, slot.pseudo, room.phase)
         if room.phase == "playing":
             room.phase = "paused"
             room.paused_player_id = slot.player_id
             room.pause_deadline = time.time() + PAUSE_TIMEOUT_SECS
+            log_game_event(room.code, {
+                "type": "disconnect",
+                "player_id": slot.player_id,
+                "pseudo": slot.pseudo,
+                "resume_before": room.pause_deadline,
+            })
             await _broadcast(room, {
                 "type": "game_paused",
                 "player_id": slot.player_id,
@@ -514,6 +741,7 @@ async def _on_disconnect(room: Room, slot: PlayerSlot, cfr_policies: dict[int, P
         elif room.phase == "lobby":
             # Remove the slot if not creator; if creator left, close room
             if slot.token == room.creator_token:
+                server_logger.info("[%s] Room closed (creator left)", room.code)
                 await _broadcast(room, {"type": "room_closed", "reason": "Le créateur a quitté."})
                 await room_manager.remove_room(room.code)
             else:
@@ -605,6 +833,46 @@ async def _ws_iter(ws: WebSocket):
             return
         except Exception:
             return
+
+
+# ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+
+
+def _log_action(
+    room_code: str,
+    round_num: int,
+    player_id: int,
+    pseudo: str,
+    action: dict,
+    round_result: dict | None = None,
+) -> None:
+    """Write one action event to the game's JSONL log."""
+    event: dict = {
+        "type": "action",
+        "round": round_num,
+        "player_id": player_id,
+        "pseudo": pseudo,
+        "action": action.get("type"),
+    }
+    if action.get("type") == "raise":
+        event["quantity"] = action.get("quantity")
+        event["value"] = action.get("value")
+    if round_result:
+        event["result"] = {
+            "loser_id": round_result.get("loser_id"),
+            "gainer_id": round_result.get("gainer_id"),
+            "total_matching": round_result.get("total"),
+            "bid_q": round_result.get("bid_q"),
+            "bid_v": round_result.get("bid_v"),
+        }
+    log_game_event(room_code, event)
+
+
+def _log_dice_counts(state: dict) -> dict[str, int]:
+    """Return {player_id: n_dice} snapshot — appended to round_end events."""
+    return {str(p["id"]): p["n_dice"] for p in state["players"]}
 
 
 # ---------------------------------------------------------------------------

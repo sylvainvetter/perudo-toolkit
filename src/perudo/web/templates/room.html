@@ -365,6 +365,19 @@
     </div>
   </template>
 
+  <!-- ══════════════════ AFK WARNING ════════════════ -->
+  <template x-if="afkWarning">
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50
+                bg-yellow-900/90 border border-yellow-600 text-yellow-200
+                rounded-xl px-5 py-3 text-sm font-semibold shadow-xl flex items-center gap-3">
+      <span>⏳</span>
+      <span x-text="afkWarning.player_id === myPlayerId
+        ? `Vous êtes inactif — jeu automatique dans ${afkWarning.seconds_left}s`
+        : `${afkWarning.pseudo} est inactif — jeu automatique dans ${afkWarning.seconds_left}s`">
+      </span>
+    </div>
+  </template>
+
   <!-- ══════════════════ GAME OVER ══════════════════ -->
   <template x-if="phase === 'game_over'">
     <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -374,7 +387,20 @@
              :class="winner === myPlayerId ? 'text-brand' : 'text-slate-300'"
              x-text="winner === myPlayerId ? 'Victoire !' : `${winnerPseudo} gagne !`">
         </div>
-        <a href="/" class="btn-primary block w-full mt-2">Nouveau lobby →</a>
+        <template x-if="isCreator">
+          <button @click="requestRematch()"
+            class="btn-primary block w-full text-base py-3">
+            🔄 Rejouer !
+          </button>
+        </template>
+        <template x-if="!isCreator">
+          <div class="text-slate-500 text-sm animate-pulse py-1">
+            En attente que le créateur relance…
+          </div>
+        </template>
+        <a href="/" class="block text-slate-500 hover:text-slate-300 text-sm transition mt-1">
+          Nouveau lobby →
+        </a>
       </div>
     </div>
   </template>
@@ -405,6 +431,8 @@ function roomPage(roomCode) {
     pausedPseudo: '',
     pauseDeadline: null,
     pseudoMap: {},   // player_id → pseudo
+    afkWarning: null,
+    afkTimer: null,
 
     init() {
       this.myToken = sessionStorage.getItem('perudo_token') || '';
@@ -455,7 +483,11 @@ function roomPage(roomCode) {
       else if (msg.type === 'game_start') {
         this.gameState = msg.state;
         this.myPlayerId = msg.your_player_id;
-        this.phase = msg.resumed ? 'playing' : 'playing';
+        this.isCreator = (this.myPlayerId === 0);
+        if (msg.pseudos) {
+          Object.assign(this.pseudoMap, msg.pseudos);
+        }
+        this.phase = 'playing';
         this.resetBidForm();
       }
       else if (msg.type === 'game_update') {
@@ -464,6 +496,8 @@ function roomPage(roomCode) {
         if (msg.round_result) {
           this.roundResult = msg.round_result;
         }
+        this.afkWarning = null;
+        if (this.afkTimer) clearTimeout(this.afkTimer);
         this.resetBidForm();
         this.$nextTick(() => this.scrollLog());
       }
@@ -486,6 +520,21 @@ function roomPage(roomCode) {
           this.scrollLog();
           setTimeout(() => { this.phase = 'game_over'; }, 1200);
         });
+      }
+      else if (msg.type === 'afk_warning') {
+        this.afkWarning = { player_id: msg.player_id, pseudo: msg.pseudo, seconds_left: msg.seconds_left };
+        // Auto-clear after the countdown
+        if (this.afkTimer) clearTimeout(this.afkTimer);
+        this.afkTimer = setTimeout(() => { this.afkWarning = null; }, msg.seconds_left * 1000 + 500);
+      }
+      else if (msg.type === 'afk_autoplay') {
+        this.afkWarning = null;
+        if (this.afkTimer) clearTimeout(this.afkTimer);
+      }
+      else if (msg.type === 'rematch') {
+        sessionStorage.setItem('perudo_token', msg.your_token);
+        sessionStorage.removeItem('perudo_player_id');
+        location.href = '/room/' + msg.room_code;
       }
       else if (msg.type === 'kicked') {
         this.errorMsg = msg.message ?? 'Vous avez été expulsé.';
@@ -515,6 +564,7 @@ function roomPage(roomCode) {
     startGame()     { this.send({ type: 'start_game' }); },
 
     kickPlayer(pid) { this.send({ type: 'kick', player_id: pid }); },
+    requestRematch() { this.send({ type: 'rematch' }); },
 
     copyCode() {
       navigator.clipboard.writeText(this.roomCode);

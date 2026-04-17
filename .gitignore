@@ -23,6 +23,11 @@ htmlcov/
 # Generated simulation data
 results/
 
+# Server & game logs (auto-created at runtime)
+logs/*.log
+logs/*.log.*
+logs/games/
+
 # IDE / OS
 .idea/
 .vscode/

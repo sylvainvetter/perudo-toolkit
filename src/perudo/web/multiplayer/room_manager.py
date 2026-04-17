@@ -7,11 +7,11 @@ Each Room has an asyncio.Lock to guard concurrent WebSocket access.
 
 from __future__ import annotations
 
-import asyncio
 import random
 import string
 import time
 import uuid
+import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -58,6 +58,7 @@ class Room:
     pause_deadline: float | None  # epoch timestamp; None when not paused
     paused_player_id: int | None  # which human disconnected
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    afk_task: "asyncio.Task | None" = field(default=None)
 
     # ------------------------------------------------------------------
     # Helpers
