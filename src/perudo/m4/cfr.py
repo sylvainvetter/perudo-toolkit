@@ -169,6 +169,7 @@ def _opponent_action(
     cfg: RecommenderConfig,
     rng: np.random.Generator,
     n_bids: int = 0,
+    n_active: int = 4,
 ) -> Liar | Exact | RaiseBid:
     """
     Decision for a self-play opponent.
@@ -181,12 +182,13 @@ def _opponent_action(
     """
     if opponent_policy is not None:
         if bid_q == 0:
-            info_key: tuple = make_opening_key(player.face_counts, total, perco)
+            info_key: tuple = make_opening_key(player.face_counts, n_active, perco)
             mask = legal_mask(0, 0, total, exact_avail=False)
         else:
             exact_avail = not player.exact_used
             info_key = make_info_key(
-                player.dice, bid_q, bid_v, total, exact_avail, perco, n_bids
+                player.dice, bid_q, bid_v, total, exact_avail, perco,
+                n_bids, n_active,
             )
             mask = legal_mask(bid_q, bid_v, total, exact_avail)
 
@@ -262,10 +264,11 @@ def fast_eval(
                 bid_q = bids[-1].quantity if bids else 0
                 bid_v = bids[-1].value if bids else 0
 
+                n_active_now = len(active)
                 if current == 0 and bid_q == 0:
                     # CFR opening bid (fallback to _fast_action for old models)
                     info_key: tuple = make_opening_key(
-                        players[0].face_counts, total, perco
+                        players[0].face_counts, n_active_now, perco
                     )
                     if policy.knows(info_key):
                         mask = legal_mask(0, 0, total, exact_avail=False)
@@ -286,7 +289,7 @@ def fast_eval(
                     exact_avail = not players[0].exact_used
                     info_key = make_info_key(
                         players[0].dice, bid_q, bid_v, total, exact_avail, perco,
-                        n_bids=len(bids),
+                        n_bids=len(bids), n_active=n_active_now,
                     )
                     mask = legal_mask(bid_q, bid_v, total, exact_avail)
                     probs = policy.get_probs(info_key, mask)
@@ -338,6 +341,123 @@ def fast_eval(
             wins += 1
 
     # Wilson 95% CI
+    n = n_games
+    p = wins / n
+    z = 1.96
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    margin = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return p, max(0.0, centre - margin), min(1.0, centre + margin)
+
+
+# ---------------------------------------------------------------------------
+# Cross-evaluation: new policy vs old policy
+# ---------------------------------------------------------------------------
+
+
+def cross_eval(
+    policy_new: Policy,
+    policy_old: Policy,
+    n_players: int,
+    n_games: int,
+    seed: int = 998,
+) -> tuple[float, float, float]:
+    """
+    Evaluate policy_new (player 0) vs policy_old opponents (players 1..n-1).
+
+    Returns (win_rate, ci_lo, ci_hi) with Wilson 95% CI.
+    Both policies fall back to ThresholdBot for unseen states.
+    """
+    import math
+
+    cfg = config_for_n_players(n_players)
+    rng = np.random.default_rng(seed)
+    wins = 0
+
+    for _ in range(n_games):
+        players = {i: _Player(pid=i, dice=[0] * 5) for i in range(n_players)}
+        active: list[int] = list(range(n_players))
+        starter: int = 0
+        perco: bool = False
+
+        while len(active) > 1:
+            for pid in active:
+                players[pid].roll(rng)
+
+            bids: list[Bid] = []
+            current: int = starter
+
+            while True:
+                all_dice = [d for pid in active for d in players[pid].dice]
+                total = len(all_dice)
+                bid_q = bids[-1].quantity if bids else 0
+                bid_v = bids[-1].value if bids else 0
+                n_active_now = len(active)
+
+                # Pick the right policy for current player
+                pol = policy_new if current == 0 else policy_old
+
+                if bid_q == 0:
+                    info_key: tuple = make_opening_key(
+                        players[current].face_counts, n_active_now, perco
+                    )
+                    mask = legal_mask(0, 0, total, exact_avail=False)
+                else:
+                    exact_avail = not players[current].exact_used
+                    info_key = make_info_key(
+                        players[current].dice, bid_q, bid_v, total,
+                        exact_avail, perco, n_bids=len(bids),
+                        n_active=n_active_now,
+                    )
+                    mask = legal_mask(bid_q, bid_v, total, exact_avail)
+
+                if pol.knows(info_key):
+                    probs = pol.get_probs(info_key, mask)
+                    legal = np.where(mask)[0]
+                    lp = probs[legal]
+                    s = lp.sum()
+                    lp = lp / s if s > 0 else np.ones(len(legal)) / len(legal)
+                    idx = int(rng.choice(legal, p=lp))
+                    action: Liar | Exact | RaiseBid = decode_action(
+                        idx, bid_q, bid_v, current
+                    )
+                else:
+                    action = _fast_action(
+                        players[current].face_counts, players[current].n_dice,
+                        bid_q, bid_v, total,
+                        players[current].exact_used, perco, current, cfg,
+                    )
+
+                if isinstance(action, RaiseBid):
+                    bids.append(action.bid)
+                    current = _next_active(active, current)
+                elif isinstance(action, Liar):
+                    result = resolve_liar(bids[-1], current, all_dice, percolateur=perco)
+                    loser_id = result.loser_id
+                    starter = loser_id if loser_id is not None else starter
+                    if loser_id is not None:
+                        players[loser_id].dice = players[loser_id].dice[:-1]
+                    break
+                else:  # Exact
+                    players[current].exact_used = True
+                    result = resolve_exact(bids[-1], current, all_dice, percolateur=perco)
+                    if result.loser_id is None:
+                        if players[current].n_dice < 5:
+                            players[current].dice.append(0)
+                    else:
+                        players[result.loser_id].dice = (
+                            players[result.loser_id].dice[:-1]
+                        )
+                    starter = current
+                    break
+
+            active = [pid for pid in active if players[pid].n_dice > 0]
+            if active and starter not in active:
+                starter = active[0]
+
+        if active and active[0] == 0:
+            wins += 1
+
     n = n_games
     p = wins / n
     z = 1.96
@@ -400,11 +520,12 @@ def _run_episode(
             bid_q = bids[-1].quantity if bids else 0
             bid_v = bids[-1].value if bids else 0
 
+            n_active_now = len(active)
             if current == 0:
                 if bid_q == 0:
                     # Opening bid: learned by CFR+ (face_counts → which value to open)
                     info_key: tuple = make_opening_key(
-                        players[0].face_counts, total, perco
+                        players[0].face_counts, n_active_now, perco
                     )
                     mask = legal_mask(0, 0, total, exact_avail=False)
                 else:
@@ -412,7 +533,7 @@ def _run_episode(
                     exact_avail = not players[0].exact_used
                     info_key = make_info_key(
                         players[0].dice, bid_q, bid_v, total, exact_avail, perco,
-                        n_bids=len(bids),
+                        n_bids=len(bids), n_active=n_active_now,
                     )
                     mask = legal_mask(bid_q, bid_v, total, exact_avail)
 
@@ -437,7 +558,7 @@ def _run_episode(
                         trainer.opponent_policy,
                         players[current],
                         bid_q, bid_v, total, perco, current, cfg, rng,
-                        n_bids=len(bids),
+                        n_bids=len(bids), n_active=n_active_now,
                     )
                 else:
                     action = _fast_action(

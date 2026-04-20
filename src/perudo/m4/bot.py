@@ -51,6 +51,7 @@ class CFRBot(Strategy):
         prev = game_state.round.current_bid
         total = sum(p.dice_count for p in game_state.players)
         perco = game_state.round.percolateur
+        n_active = sum(1 for p in game_state.players if p.dice_count > 0)
 
         bid_q = prev.quantity if prev else 0
         bid_v = prev.value if prev else 0
@@ -60,7 +61,7 @@ class CFRBot(Strategy):
             face_counts = np.bincount(
                 np.array(player.dice, dtype=np.int32), minlength=7
             )[1:].astype(np.int32)
-            info_key = make_opening_key(face_counts, total, perco)
+            info_key = make_opening_key(face_counts, n_active, perco)
             mask = legal_mask(0, 0, total, exact_avail=False)
         else:
             info_key = make_info_key(
@@ -71,6 +72,7 @@ class CFRBot(Strategy):
                 not player.exact_used,
                 perco,
                 n_bids=len(game_state.round.bids),
+                n_active=n_active,
             )
             mask = legal_mask(bid_q, bid_v, total, not player.exact_used)
 

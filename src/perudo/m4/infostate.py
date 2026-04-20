@@ -10,16 +10,20 @@ Info key (for non-opening states only, i.e. bid_q > 0):
   p_true_bucket  : P(bid is true  | own dice) → 10 levels (0-9, each 10 pp)
   p_exact_bucket : P(bid is exact | own dice) → 6  levels (0-5, each 10 pp)
   n_dice         : own dice count              → 5  values (1-5)
-  total_bucket   : total dice on table         → 3  values (early/mid/late)
+  n_active       : active players at table     → 5  values (2-6)
   exact_avail    : Exact still usable          → bool
   perco          : Percolateur active          → bool
   round_phase    : bids so far this round      → 3  values (1 / 2-3 / 4+)
 
-Total: 10 × 6 × 5 × 3 × 2 × 2 × 3 = 10 800 states.
-In practice perco=False always during training → ~5 400 reachable states.
+Total: 10 × 6 × 5 × 5 × 2 × 2 × 3 = 18 000 states.
+In practice perco=False always during training → ~9 000 reachable states.
 
-Opening bids (bid_q == 0) are handled by ThresholdBot in the trainer;
-no info key is needed for those states.
+n_active (number of players still alive) replaces the old total_bucket proxy
+(>15 / 8-15 / ≤7 dice total). It is a direct, more expressive signal:
+head-to-head (2p) vs full table (6p) demand radically different strategies.
+
+Opening bids (bid_q == 0) use the full face distribution so the agent can
+learn value-specific opening strategies.
 
 Action indices (unchanged):
   0  Liar
@@ -53,7 +57,7 @@ ACTION_RAISE_BASE = 2  # index for v=1; v=k → index k+1
 
 def make_opening_key(
     face_counts: np.ndarray,
-    total_dice: int,
+    n_active: int,
     perco: bool,
 ) -> tuple:
     """
@@ -62,14 +66,15 @@ def make_opening_key(
     Captures the full face distribution so the agent can learn value-specific
     opening strategies (e.g. "I have three 4s → bid (1,4)").
 
-    Key: ("open", face_counts_6tuple, total_bucket, perco)
+    Key: ("open", face_counts_6tuple, n_active, perco)
     Prefix "open" ensures no collision with the 7-int non-opening keys.
 
-    State count: ≤ 462 face-count vectors × 3 total buckets × 2 perco = 2 772
-    In practice perco=False always during training → ≤ 1 386 reachable.
+    n_active: number of players still alive (2-6).
+
+    State count: ≤ 462 face-count vectors × 5 player counts × 2 perco = 4 620
+    In practice perco=False always during training → ≤ 2 310 reachable.
     """
-    total_bucket = 0 if total_dice > 15 else (1 if total_dice > 7 else 2)
-    return ("open", tuple(map(int, face_counts)), total_bucket, perco)
+    return ("open", tuple(map(int, face_counts)), n_active, perco)
 
 
 def make_info_key(
@@ -80,6 +85,7 @@ def make_info_key(
     exact_avail: bool,
     perco: bool,
     n_bids: int = 1,
+    n_active: int = 4,
 ) -> tuple[Any, ...]:
     """
     Build a compact hashable info-state key for a non-opening decision.
@@ -88,8 +94,10 @@ def make_info_key(
     Should only be called when bid_q > 0 (there is a bid on the table).
 
     Args:
-        n_bids: number of bids placed this round so far (used to bucket
-                turn position: 1=fresh / 2-3=escalating / 4+=pressure).
+        n_bids  : number of bids placed this round so far (bucketed to
+                  round_phase: 1=fresh / 2-3=escalating / 4+=pressure).
+        n_active: number of players still alive (2-6). Replaces the old
+                  total_bucket proxy — more expressive and directly available.
     """
     from perudo.m4._tables import binom_pmf, binom_sf, own_counts_from_faces
 
@@ -108,16 +116,13 @@ def make_info_key(
 
     p_true_bucket = min(9, int(p_true * 10))   # 0..9  (each bucket = 10 pp)
     p_exact_bucket = min(5, int(p_exact * 10))  # 0..5  (each bucket = 10 pp)
-    n_dice = len(own_dice)                             # 1..5
-    total_bucket = (                                   # 0=early, 1=mid, 2=late
-        0 if total_dice > 15 else (1 if total_dice > 7 else 2)
-    )
+    n_dice = len(own_dice)                       # 1..5
     # 0=fresh (1 bid) / 1=escalating (2-3) / 2=pressure (4+)
     round_phase = 0 if n_bids == 1 else (1 if n_bids <= 3 else 2)
 
     return (
         p_true_bucket, p_exact_bucket, n_dice,
-        total_bucket, exact_avail, perco, round_phase,
+        n_active, exact_avail, perco, round_phase,
     )
 
 
