@@ -199,8 +199,17 @@ class TestIsValidRaiseStructural:
     v=st.integers(min_value=2, max_value=6),
 )
 def test_std_to_std_matches_formula(pq: int, pv: int, q: int, v: int) -> None:
-    """is_valid_raise == (q > pq) or (q == pq and v > pv) for std→std."""
-    expected = q > pq or (q == pq and v > pv)
+    """is_valid_raise for std→std: value can never decrease (Q-G rule).
+    v' > v : q' >= q suffices (same quantity OK with higher value)
+    v' == v: q' > q required
+    v' < v : always illegal
+    """
+    if v > pv:
+        expected = q >= pq
+    elif v == pv:
+        expected = q > pq
+    else:
+        expected = False
     assert is_valid_raise(Bid(q, v, 0), Bid(pq, pv, 1)) == expected
 
 

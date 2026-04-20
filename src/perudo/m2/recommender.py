@@ -148,7 +148,12 @@ def _min_q_for_value(prev_bid: Bid, v: int) -> int:
         return pq + 1 if v == 1 else 2 * pq + 1
     if v == 1:
         return math.ceil(pq / 2) + 1
-    return pq if v > pv else pq + 1  # Standard → Standard
+    # Standard → Standard: value can never decrease (Q-G)
+    if v > pv:
+        return pq       # same quantity OK with higher value (Q-G)
+    if v == pv:
+        return pq + 1   # strictly more required for same value
+    return 9999         # v < pv: illegal — sentinel > any realistic total_dice
 
 
 def enumerate_valid_raises(

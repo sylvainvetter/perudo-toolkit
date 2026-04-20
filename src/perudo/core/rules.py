@@ -73,7 +73,16 @@ def is_valid_raise(new_bid: Bid, prev_bid: Bid) -> bool:
         if v == 1:  # Standard → Perudo
             return q >= math.ceil(pq / 2) + 1
         else:  # Standard → Standard
-            return q > pq or (q == pq and v > pv)
+            # Value can never decrease (Q-G).
+            # v' > v : q' >= q suffices (same quantity OK with higher value)
+            # v' == v : q' > q required (strictly more dice)
+            # v' < v : always illegal
+            if v > pv:
+                return q >= pq
+            elif v == pv:
+                return q > pq
+            else:
+                return False
 
 
 # ---------------------------------------------------------------------------

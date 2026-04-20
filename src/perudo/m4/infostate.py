@@ -140,7 +140,11 @@ def min_q_raise(bid_q: int, bid_v: int, new_v: int) -> int:
         return pq + 1 if new_v == 1 else 2 * pq + 1
     if new_v == 1:
         return math.ceil(pq / 2) + 1
-    return pq if new_v > pv else pq + 1
+    if new_v > pv:
+        return pq       # same quantity OK with higher value (Q-G)
+    if new_v == pv:
+        return pq + 1   # strictly more required for same value
+    return 9999         # new_v < pv: illegal — value can never decrease
 
 
 def legal_mask(
